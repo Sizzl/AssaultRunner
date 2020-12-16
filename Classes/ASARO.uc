@@ -3,7 +3,7 @@
 //=================================================================//
 class ASARO expands Mutator config(AssaultRunner);
 
-var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp;
+var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient;
 var string AppString, ShortAppString, GRIFString;
 var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime;
 var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime;
@@ -60,9 +60,15 @@ event PreBeginPlay()
 			SimCounter = 0;
 			bGotWorldStamp = false;
 			bProcessedEndGame = false;
+			LimitPlayerStarts();
 			SetTimer(TimerPreRate,true);
 			SaveConfig();
-			log(AppString@"initialization complete. (Mode = "$String(Level.NetMode)$").");
+			if (bIsModernClient)
+			{
+				//log(AppString@"initialization complete. (Mode = "$String(Level.NetMode)$"; modern engine detected - ["$Level.EngineVersion$Level.EngineRevision"]).");	
+			}
+			else
+				log(AppString@"initialization complete. (Mode = "$String(Level.NetMode)$").");
 			Initialized=True;
 		} else {
 			bProcessedEndGame = true;
@@ -70,8 +76,11 @@ event PreBeginPlay()
 			Initialized=True;
 		}
 		Initialized=True;
-	} else {
-		if (!bEnabled) {
+	}
+	else
+	{
+		if (!bEnabled)
+		{
 			bProcessedEndGame = true;
 			log(AppString@"running, but disabled (bEnabled = false).");
 			Initialized=True;
@@ -108,7 +117,7 @@ event Timer()
 			WorldStamp = Level.TimeSeconds;
 			LifeStamp = (Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000);
 			ElapsedTime = 0;
-			if (bDebug) log("Captured level start timestamp as:"@WorldStamp$", reset ET:"@ElapsedTime);
+			if (bDebug) log("Captured level start timestamp as:"@WorldStamp$", reset ET:"@ElapsedTime,'ASARO');
 			Tag='EndGame';
 			bGotWorldStamp = true;
 			SetTimer(TimerPostRate,true);
@@ -197,8 +206,11 @@ simulated function PostRender(canvas Canvas)
 			Canvas.bCenter = true;
 			Canvas.SetPos(0, 1 * YL);
 			Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,false,bDebug));
-			//Canvas.SetPos(0, 2 * YL);
-			//Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,true,bDebug));
+			if (bSuperDebug)
+			{
+				Canvas.SetPos(0, 2 * YL);
+				Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,true,bDebug));
+			}
 			Canvas.bCenter = bIsC;
  		}
  		else if (!bProcessedEndGame) {
@@ -225,6 +237,154 @@ event Trigger(Actor Other, Pawn EventInstigator)
 		LogGameEnd();
 	}
 }
+
+function LimitPlayerStarts()
+{
+
+	local PlayerStart PS,ActivePS,NearestPSToFort;
+	local FortStandard NearestFort;
+	local string MapName;
+
+	MapName = Left(Self, InStr(Self, "."));
+
+	// Disable known-bad playerstarts
+	foreach AllActors(Class'PlayerStart',PS)
+	{
+		if (Left(MapName,9)~="AS-Bridge")
+		{
+			if( PS.Name == 'PlayerStart7' )
+			{
+				PS.Tag = 'SlowAssPlayerStart';
+				PS.bEnabled = false;
+				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
+			}
+			else if( PS.Name == 'PlayerStart8' )
+			{
+				PS.Tag = 'SlowAssPlayerStart';
+				PS.bEnabled = false;
+				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
+			}			
+			else if( PS.Name == 'PlayerStart9' )
+			{
+				PS.Tag = 'SlowAssPlayerStart';
+				PS.bEnabled = false;
+				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
+			}
+			else if( PS.Name == 'PlayerStart21' )
+			{
+				PS.Tag = 'SlowAssPlayerStart';
+				PS.bEnabled = false;
+				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
+			}
+		}
+	}
+	// Determine active attacker playerstarts
+	foreach AllActors(Class'PlayerStart',PS)
+	{
+		if (PS.TeamNumber==1 && PS.bEnabled)
+		{
+			ActivePS = PS;
+		}
+	}
+	if (ActivePS != None)
+	{
+		// Find nearest fort first
+		NearestFort = NearestObj(ActivePS);
+		if (NearestFort != None)
+		{
+			if (bDebug) log("Found closest objective to active PlayerStart:"@NearestFort.Name,'ASARO');
+			// Now find the nearest active playerstart for this fort and disable the others
+			NearestPSToFort = NearestPlayerStart(NearestFort,true,ActivePS.TeamNumber);
+			if (NearestPSToFort != None)
+			{
+				if (bDebug) log("Found closest PlayerStart to "@NearestFort.Name$":"@NearestPSToFort.Name,'ASARO');
+				foreach AllActors(Class'PlayerStart',PS)
+				{
+					if (PS.TeamNumber==1 && PS.bEnabled)
+					{
+						if (PS.Name != NearestPSToFort.Name)
+						{
+							PS.Tag = 'SlowAssPlayerStart';
+							PS.bEnabled = false;
+							if (bDebug) log("Disabling Inefficient PlayerStart:"@PS.Name,'ASARO');
+						}
+						else
+						{
+							if (bDebug) log("The most optimal PlayerStart to the closest objective is being used:"@PS.Name,'ASARO');	
+						}
+					}
+				}
+			}
+			else
+			{
+				if (bDebug) log("Could not find closest PlayerStart to FortStandard:"@NearestFort.Name,'ASARO');
+			}
+		}
+	}
+}
+
+function float DistanceFrom (Actor A1, Actor A2)
+{
+	local float DistanceX;
+	local float DistanceY;
+	local float DistanceZ;
+	local float ADistance;
+
+	DistanceX = A1.Location.X - A2.Location.X;
+	DistanceY = A1.Location.Y - A2.Location.Y;
+	DistanceZ = A1.Location.Z - A2.Location.Z;
+	ADistance = Sqrt(Square(DistanceX) + Square(DistanceY) + Square(DistanceZ));
+	return ADistance;
+}
+
+function PlayerStart NearestPlayerStart (Actor A, bool ActiveOnly,int TeamNumber)
+{
+	local float DistToNearestPS,ThisPSDist;
+	local PlayerStart PS,NearestPS;
+
+	DistToNearestPS = 0.0;
+	foreach AllActors(Class'PlayerStart',PS)
+	{
+		if (PS.TeamNumber == TeamNumber)
+		{
+			if ((ActiveOnly && PS.bEnabled) || !ActiveOnly)
+			{
+				if (bDebug) log("Measuring distance between "$A.Name$" and "$PS.Name,'ASARO');
+				ThisPSDist = DistanceFrom(A,PS);
+				if (bDebug) log("Measured distance between "$A.Name$" and "$PS.Name$":"@ThisPSDist,'ASARO');
+
+				if ( (DistToNearestPS == 0) || (ThisPSDist < DistToNearestPS) )
+				{
+					NearestPS = PS;
+					DistToNearestPS = ThisPSDist;
+				}
+			}
+		}
+	}
+	return NearestPS;
+}
+
+
+function FortStandard NearestObj (Actor A)
+{
+	local FortStandard F;
+	local FortStandard NearestFort;
+	local float DistToNearestFort;
+	local float ThisFortDist;
+
+	DistToNearestFort = 0.0;
+	foreach AllActors(Class'FortStandard',F)
+	{
+		ThisFortDist = DistanceFrom(A,F);
+		if ( (DistToNearestFort == 0) || (ThisFortDist < DistToNearestFort) )
+		{
+			NearestFort = F;
+			DistToNearestFort = ThisFortDist;
+		}
+	}
+	return NearestFort;
+}
+
 
 function LogGameEnd()
 {
@@ -429,7 +589,7 @@ function RestartMap()
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0b by timo@utassault.net"
+     AppString="AssaultRunner Offline version 1.0c by timo@utassault.net"
      ShortAppString="AssaultRunner:"
      bEnabled=True
      bAttackOnly=True
