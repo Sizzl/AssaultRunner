@@ -1,13 +1,15 @@
 //=================================================================//
 // AssaultRunner offline mutator - ©2009 timo@utassault.net        //
+// Updated Dec 2020:                                               //
+//  - Added PlayerStart optimisation based on tags and distance    //
+//    from FortStandards.                                          //
 //=================================================================//
 class ASARO expands Mutator config(AssaultRunner);
 
-var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient;
-var string AppString, ShortAppString, GRIFString;
-var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime;
-var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime;
-var float TimerPreRate, TimerPostRate;
+var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged;
+var string AppString, ShortAppString, GRIFString, ExtraData;
+var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks;
+var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS;
 
 var LeagueAS_GameReplicationInfo LeagueASGameReplicationInfo;
 var PlayerPawn Debugger, ASAROPlayer;
@@ -30,7 +32,6 @@ var() config string GRIString;
 
 var() config string LastDemoFileName;
 
-var int ticks;
 
 event PreBeginPlay()
 {
@@ -60,8 +61,15 @@ event PreBeginPlay()
 			SimCounter = 0;
 			bGotWorldStamp = false;
 			bProcessedEndGame = false;
-			LimitPlayerStarts();
+
+			StartZ = -1;
+			StartAS = -1;
+			StartWS = -1;
+			StartGS = -1;
+
+			OptimisePlayerStarts();
 			SetTimer(TimerPreRate,true);
+
 			SaveConfig();
 			if (bIsModernClient)
 			{
@@ -90,7 +98,10 @@ event PreBeginPlay()
 
 function string GDP(string Input, int Places)
 {
-	return Left(Input,InStr(Input,"."))$"."$Left(Right(Input,Len(Input)-(InStr(Input,".")+1)),Places);
+	if (Places == 0)
+		return Left(Input,InStr(Input,"."));
+	else
+		return Left(Input,InStr(Input,"."))$"."$Left(Right(Input,Len(Input)-(InStr(Input,".")+1)),Places);
 }
 
 event Timer()
@@ -120,15 +131,58 @@ event Timer()
 			if (bDebug) log("Captured level start timestamp as:"@WorldStamp$", reset ET:"@ElapsedTime,'ASARO');
 			Tag='EndGame';
 			bGotWorldStamp = true;
+			InitSpeed = Level.TimeDilation;
 			SetTimer(TimerPostRate,true);
 		}
 	}
 	else {
 		if (ASAROPlayer != None) {
+			ASAROPlayer.bCheatsEnabled = bCheatsEnabled;
+			
+			if (bCheatsEnabled)
+				bLoggedCM = True;
+			if (bGotWorldStamp)
+			{
+				if (ASAROPlayer.ReducedDamageType == 'All')
+					bIDDQD = True;
+				
+				if (ASAROPlayer.bCollideWorld == False)
+					bIDNoclip = True;
+
+				if (ASAROPlayer.Physics == PHYS_Flying)
+					bIDFly = True;
+				
+				if (Level.TimeDilation != InitSpeed)
+					bTurbo = True;
+
+				if (ASAROPlayer.GroundSpeed != StartGS || ASAROPlayer.WaterSpeed != StartWS || ASAROPlayer.AirSpeed != StartAS)
+					bSpeedChanged=True;
+			}
+			if (bLoggedCM || bIDNoclip || bIDDQD || bIDFly || bTurbo || bSpeedChanged || bJumpChanged)
+			{
+				ExtraData = " | Detected:";
+				if (bLoggedCM)
+					ExtraData = ExtraData@"Cheat Mode toggled;";
+				if (bIDNoclip)
+					ExtraData = ExtraData@"Ghost mode;";
+				if (bIDFly)
+					ExtraData = ExtraData@"Fly mode;";
+				if (bIDDQD)
+					ExtraData = ExtraData@"God mode;";
+				if (bTurbo)
+					ExtraData = ExtraData@"Speed (slomo);";
+				if (bSpeedChanged)
+					ExtraData = ExtraData@"Speed (friction);";
+				if (bJumpChanged)
+					ExtraData = ExtraData@"Jump Height (Z);";
+					
+				ExtraData = Left(ExtraData,Len(ExtraData)-1);
+			}
+
 			if (ASAROPlayer.Scoring != None) {
 				TournamentScoreBoard(ASAROPlayer.Scoring).Ended = AppString;
 				fLT = fConquerLife / (Assault(Level.Game).GameSpeed * Level.TimeDilation);
-				DataString = "[L:"$GDP(string(fLT),3)@"| E:"$GDP(string(ElapsedTime),2)@"| G:"$GDP(string(Assault(Level.Game).GameSpeed),2)@"| D:"$GDP(string(Level.TimeDilation),2)@"| A:"$GDP(string(Assault(Level.Game).AirControl),2)$"]";
+				DataString = "[L:"$GDP(string(fLT),3)@"| E:"$GDP(string(ElapsedTime),0)@"| G:"$GDP(string(Assault(Level.Game).GameSpeed),2)@"| D:"$GDP(string(Level.TimeDilation),2)@"| A:"$GDP(string(Assault(Level.Game).AirControl),2)$ExtraData$"]";
 				TournamentScoreBoard(ASAROPlayer.Scoring).Continue = DataString;
 				if (bProcessedEndGame)
 					SetTimer(0.0,false);
@@ -192,10 +246,26 @@ simulated function PostRender(canvas Canvas)
 
 	
 	ASAROPlayer = Canvas.Viewport.Actor;
-  if ( ASAROPlayer != None )
-  {
-  	ASAROHUD = ASAROPlayer.myHUD;
-  	GRI = ASAROPlayer.GameReplicationInfo;
+	if ( ASAROPlayer != None )
+	{
+		if (StartZ < 0)
+		{
+			StartZ = ASAROPlayer.JumpZ;
+			ASAROPlayer.bAdmin = false;
+		}
+		
+		if (StartGS < 0)
+			StartGS = ASAROPlayer.GroundSpeed;
+		
+		if (StartWS < 0)
+			StartWS = ASAROPlayer.WaterSpeed;
+		
+		if (StartAS < 0)
+			StartAS = ASAROPlayer.AirSpeed;
+			
+
+  		ASAROHUD = ASAROPlayer.myHUD;
+  		GRI = ASAROPlayer.GameReplicationInfo;
 
 		if (!bProcessedEndGame && bGotWorldStamp) {
 			Canvas.StrLen("Test", XL, YL);
@@ -210,6 +280,11 @@ simulated function PostRender(canvas Canvas)
 			{
 				Canvas.SetPos(0, 2 * YL);
 				Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,true,bDebug));
+				if (ExtraData != "")
+				{
+					Canvas.SetPos(0, 3 * YL);
+					Canvas.DrawText(Right(ExtraData,Len(ExtraData)-2));
+				}
 			}
 			Canvas.bCenter = bIsC;
  		}
@@ -225,7 +300,7 @@ simulated function PostRender(canvas Canvas)
  			Canvas.bCenter = bIsC;
  		}
 	}
-  if ( NextHUDMutator != None )
+	if ( NextHUDMutator != None )
 		NextHUDMutator.PostRender(Canvas);
 }
 
@@ -238,7 +313,7 @@ event Trigger(Actor Other, Pawn EventInstigator)
 	}
 }
 
-function LimitPlayerStarts()
+function OptimisePlayerStarts()
 {
 
 	local PlayerStart PS,ActivePS,NearestPSToFort;
@@ -247,34 +322,14 @@ function LimitPlayerStarts()
 
 	MapName = Left(Self, InStr(Self, "."));
 
-	// Disable known-bad playerstarts
+	// Disable known-bad, or badly placed playerstarts
 	foreach AllActors(Class'PlayerStart',PS)
 	{
 		if (Left(MapName,9)~="AS-Bridge")
 		{
-			if( PS.Name == 'PlayerStart7' )
+			if( PS.Name == 'PlayerStart7' || PS.Name == 'PlayerStart8' || PS.Name == 'PlayerStart9' || PS.Name == 'PlayerStart21' || PS.Name == 'PlayerStart24' || PS.Name == 'PlayerStart30')
 			{
-				PS.Tag = 'SlowAssPlayerStart';
-				PS.bEnabled = false;
-				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
-			}
-			else if( PS.Name == 'PlayerStart8' )
-			{
-				PS.Tag = 'SlowAssPlayerStart';
-				PS.bEnabled = false;
-				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
-			}			
-			else if( PS.Name == 'PlayerStart9' )
-			{
-				PS.Tag = 'SlowAssPlayerStart';
-				PS.bEnabled = false;
-				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
-			}
-			else if( PS.Name == 'PlayerStart21' )
-			{
-				PS.Tag = 'SlowAssPlayerStart';
-				PS.bEnabled = false;
-				if (bDebug) log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
+				DisablePlayerStart(PS,false);
 			}
 		}
 	}
@@ -294,7 +349,7 @@ function LimitPlayerStarts()
 		{
 			if (bDebug) log("Found closest objective to active PlayerStart:"@NearestFort.Name,'ASARO');
 			// Now find the nearest active playerstart for this fort and disable the others
-			NearestPSToFort = NearestPlayerStart(NearestFort,true,ActivePS.TeamNumber);
+			NearestPSToFort = NearestPlayerStart(NearestFort,true,ActivePS.TeamNumber,ActivePS.Tag);
 			if (NearestPSToFort != None)
 			{
 				if (bDebug) log("Found closest PlayerStart to "@NearestFort.Name$":"@NearestPSToFort.Name,'ASARO');
@@ -303,15 +358,9 @@ function LimitPlayerStarts()
 					if (PS.TeamNumber==1 && PS.bEnabled)
 					{
 						if (PS.Name != NearestPSToFort.Name)
-						{
-							PS.Tag = 'SlowAssPlayerStart';
-							PS.bEnabled = false;
-							if (bDebug) log("Disabling Inefficient PlayerStart:"@PS.Name,'ASARO');
-						}
+							DisablePlayerStart(PS,true);
 						else
-						{
 							if (bDebug) log("The most optimal PlayerStart to the closest objective is being used:"@PS.Name,'ASARO');	
-						}
 					}
 				}
 			}
@@ -321,8 +370,56 @@ function LimitPlayerStarts()
 			}
 		}
 	}
-}
+	// Repeat for inactive PlayerStarts, grouped by tag
+	if (bDebug) log("Optimising future PlayerStarts...",'ASARO');
+	foreach AllActors(Class'PlayerStart',PS)
+	{
+		if (PS.TeamNumber==1 && !(PS.bEnabled) && PS.Tag != 'SlowAssPlayerStart' && PS.Tag != '')
+		{
+			ActivePS = PS;
+			NearestFort = NearestObj(ActivePS);
+			if (NearestFort != None)
+			{
+				if (bDebug) log("Found closest objective to inactive PlayerStart ("$ActivePS.Name$"):"@NearestFort.Name,'ASARO');
+				NearestPSToFort = NearestPlayerStart(NearestFort,false,ActivePS.TeamNumber,ActivePS.Tag);
+				foreach AllActors(Class'PlayerStart',PS,ActivePS.Tag)
+				{
+					if (PS.Name != NearestPSToFort.Name)
+					{
+						DisablePlayerStart(PS,true);
+					}
+					else
+					{
+						if (bDebug) log("The most optimal future PlayerStart to the closest objective ("$NearestFort.Name$") is being used:"@PS.Name,'ASARO');	
+					}
+				}
+			}
+		}
+	}
 
+
+
+}
+function DisablePlayerStart (PlayerStart PS, bool Optimising)
+{
+	if (PS != None)
+	{
+		PS.Tag = 'SlowAssPlayerStart';
+		PS.bEnabled = false;
+		if (bDebug)
+		{
+			if (Optimising)
+			{
+				if (PS.bEnabled)
+					log("Disabling inefficient PlayerStart:"@PS.Name,'ASARO');
+				else
+					log("Disabling future inefficient PlayerStart:"@PS.Name,'ASARO');
+			}
+			else
+				log("Disabling Known Bad PlayerStart:"@PS.Name,'ASARO');
+		}
+	}
+}
 function float DistanceFrom (Actor A1, Actor A2)
 {
 	local float DistanceX;
@@ -337,13 +434,13 @@ function float DistanceFrom (Actor A1, Actor A2)
 	return ADistance;
 }
 
-function PlayerStart NearestPlayerStart (Actor A, bool ActiveOnly,int TeamNumber)
+function PlayerStart NearestPlayerStart (Actor A, bool ActiveOnly,int TeamNumber,name Tag)
 {
 	local float DistToNearestPS,ThisPSDist;
 	local PlayerStart PS,NearestPS;
 
 	DistToNearestPS = 0.0;
-	foreach AllActors(Class'PlayerStart',PS)
+	foreach AllActors(Class'PlayerStart', PS, Tag)
 	{
 		if (PS.TeamNumber == TeamNumber)
 		{
@@ -465,7 +562,7 @@ function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTim
 
 	if (bDebug || bSuperDebug) {
 		DataString = " [L:"$GDP(string(fLT),3);
-		DataString = DataString$"|E:"$GDP(string(ElapsedTime),2);
+		DataString = DataString$"|E:"$GDP(string(ElapsedTime),0);
 		DataString = DataString$"|G:"$GDP(string(Assault(Level.Game).GameSpeed),2);
 		DataString = DataString$"|D:"$GDP(string(Level.TimeDilation),2);
 		DataString = DataString$"]";
@@ -517,13 +614,27 @@ function Mutate(string MutateString, PlayerPawn Sender)
 				Debugger = Sender;			
 			}
 		}
+		else if (Left(MutateString,8)~="ar cheat")
+		{
+			if (bCheatsEnabled)
+			{
+				bCheatsEnabled=False;
+			}
+			else
+			{
+				bCheatsEnabled=True;
+				Sender.ClientMessage("Cheats are now enabled; this run will be flagged.");
+			}
+			SaveConfig();
+
+		}
 		else if (MutateString~="ar restart")
 		{
-						RestartMap();
+			RestartMap();
 		}
 		else if (MutateString~="ar demo" || MutateString~="ar demorec")
 		{
-				RequestDemo();
+			RequestDemo();
 		}
 	}
 	if ( NextMutator != None )
@@ -589,9 +700,10 @@ function RestartMap()
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0c by timo@utassault.net"
+     AppString="AssaultRunner Offline version 1.0d by timo@utassault.net"
      ShortAppString="AssaultRunner:"
      bEnabled=True
+     bCheatsEnabled=False
      bAttackOnly=True
      bAllowRestart=True
      iResolution=3
