@@ -792,7 +792,7 @@ function RestartMap()
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0d by timo@utassault.net"
+     AppString="AssaultRunner Offline version 1.0e by timo@utassault.net"
      ShortAppString="AssaultRunner:"
      bEnabled=True
      bCheatsEnabled=False
