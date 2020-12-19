@@ -1,5 +1,6 @@
 //=================================================================//
 // AssaultRunner offline mutator - ©2009 timo@utassault.net        //
+// https://github.com/Sizzl/AssaultRunner                          //
 // Updated Dec 2020:                                               //
 //  - Added PlayerStart optimisation based on tags and distance    //
 //    from FortStandards.                                          //
@@ -7,13 +8,13 @@
 class ASARO expands Mutator config(AssaultRunner);
 
 var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged;
-var string AppString, ShortAppString, GRIFString, ExtraData;
+var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20];
 var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount,ISSlot;
 var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS;
 
 var LeagueAS_GameReplicationInfo LeagueASGameReplicationInfo;
 var PlayerPawn Debugger, ASAROPlayer;
-var PlayerStart FirstOptPS,InitialStarts[32];
+var PlayerStart FirstOptPS,ChosenPS,InitialStarts[32];
 var HUD ASAROHUD;
 
 var() config bool bEnabled;
@@ -32,7 +33,8 @@ var() config bool bFullTime;
 var() config string GRIString;
 
 var() config string LastDemoFileName;
-
+var() config string SavedSpawn[254];
+var() config int SavedSlot;
 
 event PreBeginPlay()
 {
@@ -69,6 +71,7 @@ event PreBeginPlay()
 			StartGS = -1;
 
 			OptimisePlayerStarts();
+			AttachFortStandards();
 			SetTimer(TimerPreRate,true);
 
 			SaveConfig();
@@ -110,6 +113,8 @@ event Timer()
 	local bool bStopCountDown;
 	local string DataString;
 	local float fLT;
+	local int i;
+	local PlayerStart PS;
 
 	if ( Level.NetMode == NM_Client || Level.NetMode == NM_Standalone )
 	{
@@ -129,15 +134,35 @@ event Timer()
 			WorldStamp = Level.TimeSeconds;
 			LifeStamp = (Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000);
 			ElapsedTime = 0;
-			if (bDebug) log("Captured level start timestamp as:"@WorldStamp$", reset ET:"@ElapsedTime,'ASARO');
+			if (bDebug)
+				log("Captured level start timestamp as:"@WorldStamp$", reset ET:"@ElapsedTime,'ASARO');
 			Tag='EndGame';
 			bGotWorldStamp = true;
 			InitSpeed = Level.TimeDilation;
 			SetTimer(TimerPostRate,true);
+			foreach AllActors(Class'PlayerStart',PS)
+			{
+				if (PS.bEnabled != true)
+					PS.bHidden = true;
+			}
 		}
 	}
 	else {
 		if (ASAROPlayer != None) {
+
+			if (LeagueASGameReplicationInfo != None)
+			{
+				for (i = 0; i < 20; i++)
+				{
+					if (Len(LeagueASGameReplicationInfo.FortName[i]) > 0 && Left(LeagueASGameReplicationInfo.FortCompleted[i],15) ~= "Completed! - By")
+					{
+						LeagueASGameReplicationInfo.FortCompleted[i] = "Completed @ "$FortTimes[i];
+						if (bDebug)
+							log("Overwriting scoreboard for objective "$LeagueASGameReplicationInfo.FortName[i]$"; completed at - "$FortTimes[i],'ASARO');
+					}
+				}
+			}
+
 			ASAROPlayer.bCheatsEnabled = bCheatsEnabled;
 			
 			if (bCheatsEnabled)
@@ -231,7 +256,7 @@ simulated function Tick(float DeltaTime)
 	{
 		if (Debugger != None)
 		{
-			Debugger.ClientMessage(ReturnTimeStr(!bProcessedEndGame,false,bFullTime));
+			Debugger.ClientMessage(ReturnTimeStr(!bProcessedEndGame,false,bFullTime,false));
 		}
 	}
 }
@@ -245,8 +270,12 @@ simulated function PostRender(canvas Canvas)
 	local bool bIsC;
 	local Actor T;
 
-	
-	ASAROPlayer = Canvas.Viewport.Actor;
+	if (ASAROPlayer == None)
+	{
+		ASAROPlayer = Canvas.Viewport.Actor;
+		if (Level.Game.isA('LeagueAssault'))
+			LeagueASGameReplicationInfo = LeagueAS_GameReplicationInfo(ASAROPlayer.GameReplicationInfo);
+	}
 	if ( ASAROPlayer != None )
 	{
 		if (StartZ < 0)
@@ -276,11 +305,11 @@ simulated function PostRender(canvas Canvas)
 			bIsC = Canvas.bCenter;
 			Canvas.bCenter = true;
 			Canvas.SetPos(0, 1 * YL);
-			Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,false,bDebug));
+			Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,false,bDebug,false));
 			if (bSuperDebug)
 			{
 				Canvas.SetPos(0, 2 * YL);
-				Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,true,bDebug));
+				Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,true,bDebug,false));
 				if (ExtraData != "")
 				{
 					Canvas.SetPos(0, 3 * YL);
@@ -308,18 +337,69 @@ simulated function PostRender(canvas Canvas)
 
 event Trigger(Actor Other, Pawn EventInstigator)
 {
+	local int i;
+	if (bDebug)
+		log("Incoming trigger for "@Other.Name$", via"@EventInstigator.Name,'ASARO');
 	if (Other.IsA('Assault'))
 	{
 		LogGameEnd();
 	}
+	else if (Other.IsA('FortStandard'))
+	{
+		// Hooked objectives for interval time recording
+		if (EventInstigator.isA('PlayerPawn') && Level.Game.isA('LeagueAssault'))
+		{
+			LeagueASGameReplicationInfo = LeagueAS_GameReplicationInfo(PlayerPawn(EventInstigator).GameReplicationInfo);
+			if (LeagueASGameReplicationInfo != None)
+			{
+				for (i = 0; i < 20; i++)
+				{
+					if (LeagueASGameReplicationInfo.FortName[i] == string(Other.Name) || LeagueASGameReplicationInfo.FortName[i] == FortStandard(Other).FortName)
+					{
+						FortTimes[i] = ReturnTimeStr(!bProcessedEndGame,false,bDebug,true);
+						LeagueASGameReplicationInfo.FortCompleted[i] = "Completed @ "$FortTimes[i];
+						if (bDebug)
+							log("Objective "$Other.Name$" completed - "$FortTimes[i],'ASARO');
+					}
+				}
+			}
+		}
+	}
 }
+
+function AttachFortStandards()
+{
+	// Attach a trigger variant to the fortstandards to call back to this mutator for time tracking in GRI
+	local FortStandard F;
+	local Counter C;
+
+	foreach AllActors(Class'FortStandard',F)
+	{
+		C = Spawn( Class'Engine.Counter', F, , F.Location );
+		if (F.Event == '')
+		{
+			F.Event='ASAROFortHook';
+		}
+		C.Tag = F.Event;
+		C.NumToCount = 1;
+		C.bShowMessage = bDebug;
+		C.CompleteMessage = "Hooked objective triggering ASARO logging.";
+		C.bHidden = true;
+		C.SetPhysics( PHYS_None );
+		C.SetCollision( false, false, false );
+		C.SetCollisionSize(0,0);
+		C.Event = 'EndGame';
+		
+	}
+ }
 
 function OptimisePlayerStarts()
 {
 
-	local PlayerStart PS,ActivePS,NearestPSToFort;
+	local PlayerStart PS,ActivePS,NearestPSToFort,NextPS;
 	local FortStandard NearestFort;
-	local string MapName;
+	local string MapName, SavedPS;
+	local int i;
 
 	MapName = Left(Self, InStr(Self, "."));
 
@@ -350,14 +430,17 @@ function OptimisePlayerStarts()
 		NearestFort = NearestObj(ActivePS);
 		if (NearestFort != None)
 		{
-			if (bDebug) log("Found closest objective to active PlayerStart:"@NearestFort.Name,'ASARO');
+			if (bDebug)
+				log("Found closest objective to active PlayerStart:"@NearestFort.Name,'ASARO');
 			// Now find the nearest active playerstart for this fort and disable the others
 			NearestPSToFort = NearestPlayerStart(NearestFort,true,ActivePS.TeamNumber,ActivePS.Tag);
 			if (NearestPSToFort != None)
 			{
 				FirstOptPS = NearestPSToFort; // Log this for later
+				ChosenPS = NearestPSToFort; // Log this for later
 				HighlightPlayerStart(NearestPSToFort,true);
-				if (bDebug) log("Found closest PlayerStart to "@NearestFort.Name$":"@NearestPSToFort.Name,'ASARO');
+				if (bDebug)
+					log("Found closest PlayerStart to "@NearestFort.Name$":"@NearestPSToFort.Name,'ASARO');
 				foreach AllActors(Class'PlayerStart',PS)
 				{
 					if (PS.TeamNumber==1 && PS.bEnabled)
@@ -365,21 +448,65 @@ function OptimisePlayerStarts()
 						if (PS.Name != NearestPSToFort.Name)
 							DisablePlayerStart(PS,true,true);
 						else
-							if (bDebug) log("The most optimal PlayerStart to the closest objective is being used:"@PS.Name,'ASARO');	
+							if (bDebug)
+								log("The most optimal PlayerStart to the closest objective is being used:"@PS.Name,'ASARO');	
 					}
 				}
 			}
 			else
 			{
-				if (bDebug) log("Could not find closest PlayerStart to FortStandard:"@NearestFort.Name,'ASARO');
+				if (bDebug)
+					log("Could not find closest PlayerStart to FortStandard:"@NearestFort.Name,'ASARO');
 			}
 		}
 	}
+    // Check for a Saved PS and restore selection
+	for (i = 0; i < SavedSlot; i++)
+	{
+		if (Left(SavedSpawn[i],(Len(MapName)+1)) ~= (MapName$","))
+		{
+			SavedPS = Mid(SavedSpawn[i],(Len(MapName)+1));
+			if (string(ChosenPS.Name) != SavedPS)
+			{
+				NextPS = None;
+				if (bDebug)
+					log("Using Saved PlayerStart details:"@SavedPS,'ASARO');
+				foreach AllActors(Class'PlayerStart',PS)
+				{
+					if (PS.TeamNumber==1 && PS.Tag=='ASAROSelectablePlayerStart' && string(PS.Name) == SavedPS)
+					{
+						NextPS = PS;
+					}
+				}
+				if (NextPS != None)
+				{
+					if (bDebug)
+						log("Preparing to switch to Saved PlayerStart:"@NextPS.Name,'ASARO');
+					NextPS.Tag = ChosenPS.Tag;
+					NextPS.bEnabled = true;
+					HighlightPlayerStart(NextPS,true);
+					DisablePlayerStart(ChosenPS,true,true);
+					ChosenPS.Tag = 'ASAROSelectablePlayerStart';
+					if (ASAROPlayer != None)
+					{
+						ASAROPlayer.SetLocation(NextPS.Location);
+						ASAROPlayer.SetRotation(NextPS.Rotation);
+					}
+					ChosenPS = NextPS;
+					if (bDebug)
+						log("Switched to Saved PlayerStart:"@ChosenPS.Name,'ASARO');
+				}
+			
+			}
+		}
+	}
+
 	// Repeat for inactive PlayerStarts, grouped by tag
-	if (bDebug) log("Optimising future PlayerStarts...",'ASARO');
+	if (bDebug)
+		log("Optimising future PlayerStarts...",'ASARO');
 	foreach AllActors(Class'PlayerStart',PS)
 	{
-		if (PS.TeamNumber==1 && !(PS.bEnabled) && PS.Tag != 'SlowAssPlayerStart' && PS.Tag != '')
+		if (PS.TeamNumber==1 && !(PS.bEnabled) && PS.Tag != 'SlowAssPlayerStart' && PS.Tag != 'ASAROSelectablePlayerStart' && PS.Tag != '')
 		{
 			ActivePS = PS;
 			NearestFort = NearestObj(ActivePS);
@@ -395,7 +522,8 @@ function OptimisePlayerStarts()
 					}
 					else
 					{
-						if (bDebug) log("The most optimal future PlayerStart to the closest objective ("$NearestFort.Name$") is being used:"@PS.Name,'ASARO');	
+						if (bDebug)
+							log("The most optimal future PlayerStart to the closest objective ("$NearestFort.Name$") is being used:"@PS.Name,'ASARO');	
 					}
 				}
 			}
@@ -420,11 +548,11 @@ function HighlightPlayerStart(PlayerStart PS,bool bEnabled)
 	PS.bHidden = false;
 }
 
-function DisablePlayerStart (PlayerStart PS, bool Initial, bool Optimising)
+function DisablePlayerStart (PlayerStart PS, bool bInitial, bool bOptimising)
 {
 	if (PS != None)
 	{
-		if (Initial)
+		if (bInitial)
 		{
 			PS.Tag = 'ASAROSelectablePlayerStart';
 			HighlightPlayerStart(PS,false);
@@ -435,7 +563,7 @@ function DisablePlayerStart (PlayerStart PS, bool Initial, bool Optimising)
 		PS.bEnabled = false;
 		if (bDebug)
 		{
-			if (Optimising)
+			if (bOptimising)
 			{
 				if (PS.bEnabled)
 					log("Disabling inefficient PlayerStart:"@PS.Name,'ASARO');
@@ -461,7 +589,7 @@ function float DistanceFrom (Actor A1, Actor A2)
 	return ADistance;
 }
 
-function PlayerStart NearestPlayerStart (Actor A, bool ActiveOnly,int TeamNumber,name Tag)
+function PlayerStart NearestPlayerStart (Actor A, bool bActiveOnly, int TeamNumber, name Tag)
 {
 	local float DistToNearestPS,ThisPSDist;
 	local PlayerStart PS,NearestPS;
@@ -471,7 +599,7 @@ function PlayerStart NearestPlayerStart (Actor A, bool ActiveOnly,int TeamNumber
 	{
 		if (PS.TeamNumber == TeamNumber)
 		{
-			if ((ActiveOnly && PS.bEnabled) || !ActiveOnly)
+			if ((bActiveOnly && PS.bEnabled) || !bActiveOnly)
 			{
 				if (bDebug) log("Measuring distance between "$A.Name$" and "$PS.Name,'ASARO');
 				ThisPSDist = DistanceFrom(A,PS);
@@ -514,7 +642,10 @@ function LogGameEnd()
 {
 	local Pawn P;
 	local TournamentScoreBoard T;
-	
+	local string MapName;
+	MapName = Left(Self, InStr(Self, "."));
+	MapName = Caps(Left(MapName,4))$Mid(MapName,4);
+
 	fConquerTime = Level.TimeSeconds-WorldStamp;
 	fConquerLife = ((Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000)) - LifeStamp;
 	if (bGRPMethod==true) {
@@ -527,21 +658,21 @@ function LogGameEnd()
 				if (!Assault(Level.Game).bAssaultWon)
 					PlayerPawn(P).GameReplicationInfo.GameEndedComments = GRIFString;
 				else
-					PlayerPawn(P).GameReplicationInfo.GameEndedComments = GRIString@ReturnTimeStr(false,false,bFullTime);
+					PlayerPawn(P).GameReplicationInfo.GameEndedComments = MapName@GRIString@ReturnTimeStr(false,false,bFullTime,false);
 			}
 		}
 	} else {
 		if (!Assault(Level.Game).bAssaultWon)
 			LeagueAS_GameReplicationInfo(Level.Game.GameReplicationInfo).GameEndedComments = GRIFString;
 		else
-			LeagueAS_GameReplicationInfo(Level.Game.GameReplicationInfo).GameEndedComments = GRIString@ReturnTimeStr(false,false,bFullTime);
+			LeagueAS_GameReplicationInfo(Level.Game.GameReplicationInfo).GameEndedComments = MapName@GRIString@ReturnTimeStr(false,false,bFullTime,false);
 	}
 
 	bProcessedEndGame = true;
 	SetTimer(0.05,true);
 }
 
-function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTime)
+function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTime, bool bIgnoreDebug)
 {
 	local int Minutes, Seconds;
 	local string TimeResult,strSubTime, DataString;
@@ -587,7 +718,7 @@ function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTim
 
 	fLT = ConquerLife / (Assault(Level.Game).GameSpeed * Level.TimeDilation);
 
-	if (bDebug || bSuperDebug) {
+	if (!bIgnoreDebug && (bDebug || bSuperDebug)) {
 		DataString = " [L:"$GDP(string(fLT),3);
 		DataString = DataString$"|E:"$GDP(string(ElapsedTime),0);
 		DataString = DataString$"|G:"$GDP(string(Assault(Level.Game).GameSpeed),2);
@@ -597,7 +728,7 @@ function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTim
 	else
 		DataString = "";
 		
-	if (bSuperDebug || bDebug || bShowFullTime)
+	if (!bIgnoreDebug && (bSuperDebug || bDebug || bShowFullTime))
 		strSubTime = strSubTime@"(World:"$(ConquerTime)$DataString$")";
 		
 	TimeResult = TimeResult$"."$strSubTime;
@@ -608,10 +739,14 @@ function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTim
 function Mutate(string MutateString, PlayerPawn Sender)
 {
 	local int i;
-	local string GT;
+	local string GT, MapName;
 	local PlayerStart PS,ActivePS,NextPS;
+	local bool bSaved;
+
 	GT=Level.Game.MapPrefix;
-	
+	MapName = Left(Self, InStr(Self, "."));
+	MapName = Caps(Left(MapName,4))$Mid(MapName,4);
+
 	if(MutateString~="ar info")
 	{
 		Sender.ClientMessage(AppString@"- "@GT@" SpeedRun Mutator");
@@ -642,6 +777,20 @@ function Mutate(string MutateString, PlayerPawn Sender)
 				Debugger = Sender;			
 			}
 		}
+		else if (MutateString~="ar forts")
+		{
+			if (LeagueASGameReplicationInfo != None)
+			{
+				for (i = 0; i < 20; i++)
+				{
+					if (LeagueASGameReplicationInfo.FortName[i] != "")
+					{
+						Sender.ClientMessage(LeagueASGameReplicationInfo.FortName[i]@"->"@LeagueASGameReplicationInfo.FortCompleted[i]);
+					}
+				}
+			}
+			
+		}
 		else if (Left(MutateString,8)~="ar cheat")
 		{
 			if (bCheatsEnabled)
@@ -665,9 +814,26 @@ function Mutate(string MutateString, PlayerPawn Sender)
     				Sender.ClientMessage("Initial PlayerStart - "$InitialStarts[i].Name);
     			}
     		}
-			
 		}
-		else if (Left(MutateString,9)~="ar change")
+		else if (MutateString~="ar showps")
+		{
+				foreach AllActors(Class'PlayerStart',PS)
+				{
+					if (PS.TeamNumber==1 && (PS.Tag=='SlowAssPlayerStart' || PS.Tag == 'ASAROSelectablePlayerStart'))
+					{
+						HighlightPlayerStart(PS,false);
+						if (bDebug)
+							Sender.ClientMessage("Unhiding:"@PS.Name);
+					}
+					else
+					{
+						HighlightPlayerStart(PS,true);	
+						if (bDebug)
+							Sender.ClientMessage("Unhiding recommended/chosen spawn:"@PS.Name);
+					}
+				}
+		}
+		else if (Left(MutateString,9)~="ar change" || Left(MutateString,9)~="ar switch")
 		{
 			if (!bGotWorldStamp)
 			{
@@ -705,8 +871,12 @@ function Mutate(string MutateString, PlayerPawn Sender)
 				HighlightPlayerStart(NextPS,true);
 				NextPS.bEnabled = true;
 				DisablePlayerStart(ActivePS,true,true);
-				Sender.SetLocation(NextPS.Location);
-				Sender.SetRotation(NextPS.Rotation);
+
+				if (Left(MutateString,9)~="ar change")
+				{
+					Sender.SetLocation(NextPS.Location);
+					Sender.SetRotation(NextPS.Rotation);
+				}
 
 				if (FirstOptPS==ActivePS)
 					Sender.ClientMessage("("$(ISSlot+1)$"/"$(ISCount+1)$") Switched from auto-optimised "$ActivePS.Name$" to "$NextPS.Name);
@@ -714,6 +884,24 @@ function Mutate(string MutateString, PlayerPawn Sender)
 					Sender.ClientMessage("("$(ISSlot+1)$"/"$(ISCount+1)$") Switched from manually selected "$ActivePS.Name$" to auto-optimised "$NextPS.Name);
 				else
 					Sender.ClientMessage("("$(ISSlot+1)$"/"$(ISCount+1)$") Switched from manually selected "$ActivePS.Name$" to "$NextPS.Name);
+				ChosenPS = NextPS;
+
+				for (i = 0; i < SavedSlot; i++)
+				{
+					if (Left(SavedSpawn[i],(Len(MapName)+1)) ~= (MapName$","))
+					{
+						SavedSpawn[i] = MapName$","$ChosenPS.Name;
+						bSaved = true;
+					}
+				}
+				if (!bSaved)
+				{
+					SavedSpawn[SavedSlot] = MapName$","$ChosenPS.Name;
+					SavedSlot++;
+					if (SavedSlot > 254)
+						SavedSlot = 0;
+				}
+				SaveConfig();
 			}
 			else
 			{
@@ -792,7 +980,7 @@ function RestartMap()
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0e by timo@utassault.net"
+     AppString="AssaultRunner Offline version 1.0f by timo@utassault.net"
      ShortAppString="AssaultRunner:"
      bEnabled=True
      bCheatsEnabled=False
@@ -802,7 +990,7 @@ defaultproperties
      bAutoDemoRec=True
      bUseFloatAlways=True
      bFullTime=True
-     GRIString="Map completed in:"
+     GRIString="completed in:"
      GRIFString="You're an absolute failure. You have no time worthy of display."
      bAlwaysRelevant=True
      bNetTemporary=True
