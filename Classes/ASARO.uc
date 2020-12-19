@@ -8,11 +8,12 @@ class ASARO expands Mutator config(AssaultRunner);
 
 var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged;
 var string AppString, ShortAppString, GRIFString, ExtraData;
-var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks;
+var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount,ISSlot;
 var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS;
 
 var LeagueAS_GameReplicationInfo LeagueASGameReplicationInfo;
 var PlayerPawn Debugger, ASAROPlayer;
+var PlayerStart FirstOptPS,InitialStarts[32];
 var HUD ASAROHUD;
 
 var() config bool bEnabled;
@@ -329,7 +330,7 @@ function OptimisePlayerStarts()
 		{
 			if( PS.Name == 'PlayerStart7' || PS.Name == 'PlayerStart8' || PS.Name == 'PlayerStart9' || PS.Name == 'PlayerStart21' || PS.Name == 'PlayerStart24' || PS.Name == 'PlayerStart30')
 			{
-				DisablePlayerStart(PS,false);
+				DisablePlayerStart(PS,false,false);
 			}
 		}
 	}
@@ -338,6 +339,8 @@ function OptimisePlayerStarts()
 	{
 		if (PS.TeamNumber==1 && PS.bEnabled)
 		{
+			InitialStarts[ISCount] = PS;
+			ISCount++;
 			ActivePS = PS;
 		}
 	}
@@ -352,13 +355,15 @@ function OptimisePlayerStarts()
 			NearestPSToFort = NearestPlayerStart(NearestFort,true,ActivePS.TeamNumber,ActivePS.Tag);
 			if (NearestPSToFort != None)
 			{
+				FirstOptPS = NearestPSToFort; // Log this for later
+				HighlightPlayerStart(NearestPSToFort,true);
 				if (bDebug) log("Found closest PlayerStart to "@NearestFort.Name$":"@NearestPSToFort.Name,'ASARO');
 				foreach AllActors(Class'PlayerStart',PS)
 				{
 					if (PS.TeamNumber==1 && PS.bEnabled)
 					{
 						if (PS.Name != NearestPSToFort.Name)
-							DisablePlayerStart(PS,true);
+							DisablePlayerStart(PS,true,true);
 						else
 							if (bDebug) log("The most optimal PlayerStart to the closest objective is being used:"@PS.Name,'ASARO');	
 					}
@@ -386,7 +391,7 @@ function OptimisePlayerStarts()
 				{
 					if (PS.Name != NearestPSToFort.Name)
 					{
-						DisablePlayerStart(PS,true);
+						DisablePlayerStart(PS,false,true);
 					}
 					else
 					{
@@ -400,11 +405,33 @@ function OptimisePlayerStarts()
 
 
 }
-function DisablePlayerStart (PlayerStart PS, bool Optimising)
+
+function HighlightPlayerStart(PlayerStart PS,bool bEnabled)
+{
+	if (bEnabled)
+		PS.Style = STY_Translucent;
+	else
+		PS.Style = STY_Modulated;
+	
+	PS.DrawType = DT_Mesh;
+	PS.Mesh = Mesh'Botpack.PylonM';
+	PS.DrawScale = 2.5;
+	PS.bMeshEnviroMap = true;
+	PS.bHidden = false;
+}
+
+function DisablePlayerStart (PlayerStart PS, bool Initial, bool Optimising)
 {
 	if (PS != None)
 	{
-		PS.Tag = 'SlowAssPlayerStart';
+		if (Initial)
+		{
+			PS.Tag = 'ASAROSelectablePlayerStart';
+			HighlightPlayerStart(PS,false);
+		}
+		else
+			PS.Tag = 'SlowAssPlayerStart';
+
 		PS.bEnabled = false;
 		if (bDebug)
 		{
@@ -582,6 +609,7 @@ function Mutate(string MutateString, PlayerPawn Sender)
 {
 	local int i;
 	local string GT;
+	local PlayerStart PS,ActivePS,NextPS;
 	GT=Level.Game.MapPrefix;
 	
 	if(MutateString~="ar info")
@@ -627,6 +655,70 @@ function Mutate(string MutateString, PlayerPawn Sender)
 			}
 			SaveConfig();
 
+		}
+		else if (Left(MutateString,7)~="ar list")
+		{
+    		for (i = 0; i < 32; i++)
+    		{
+    			if (InitialStarts[i]!=None)
+    			{
+    				Sender.ClientMessage("Initial PlayerStart - "$InitialStarts[i].Name);
+    			}
+    		}
+			
+		}
+		else if (Left(MutateString,9)~="ar change")
+		{
+			if (!bGotWorldStamp)
+			{
+				foreach AllActors(Class'PlayerStart',PS)
+				{
+					if (PS.TeamNumber==1 && PS.bEnabled)
+					{
+						ActivePS = PS;
+					}
+				}
+				for (i = 0; i < 32; i++)
+    			{
+    				if (InitialStarts[i]!=None)
+    				{
+    					ISCount=i;
+    					if (InitialStarts[i].Name == ActivePS.Name)
+    						ISSlot = i;
+
+    				}
+    			}
+				if (ISSlot==ISCount)
+					ISSlot = 0;
+				else
+					ISSlot++;
+
+				foreach AllActors(Class'PlayerStart',PS)
+				{
+					if (PS.TeamNumber==1 && PS.Name==InitialStarts[ISSlot].Name && NextPS==None)
+					{
+						NextPS = PS;
+					}
+				}
+				NextPS.Tag = ActivePS.Tag;
+				ActivePS.Tag = 'ASAROSelectablePlayerStart';
+				HighlightPlayerStart(NextPS,true);
+				NextPS.bEnabled = true;
+				DisablePlayerStart(ActivePS,true,true);
+				Sender.SetLocation(NextPS.Location);
+				Sender.SetRotation(NextPS.Rotation);
+
+				if (FirstOptPS==ActivePS)
+					Sender.ClientMessage("("$(ISSlot+1)$"/"$(ISCount+1)$") Switched from auto-optimised "$ActivePS.Name$" to "$NextPS.Name);
+				else if (FirstOptPS==NextPS)
+					Sender.ClientMessage("("$(ISSlot+1)$"/"$(ISCount+1)$") Switched from manually selected "$ActivePS.Name$" to auto-optimised "$NextPS.Name);
+				else
+					Sender.ClientMessage("("$(ISSlot+1)$"/"$(ISCount+1)$") Switched from manually selected "$ActivePS.Name$" to "$NextPS.Name);
+			}
+			else
+			{
+				Sender.ClientMessage("Game has already started; use 'mutate ar restart' to start a new game.");	
+			}
 		}
 		else if (MutateString~="ar restart")
 		{
