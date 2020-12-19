@@ -1,10 +1,11 @@
-//=================================================================//
-// AssaultRunner offline mutator - ©2009 timo@utassault.net        //
-// https://github.com/Sizzl/AssaultRunner                          //
-// Updated Dec 2020:                                               //
-//  - Added PlayerStart optimisation based on tags and distance    //
-//    from FortStandards.                                          //
-//=================================================================//
+//==================================================================//
+// AssaultRunner offline mutator - ©2009 timo@utassault.net         //
+//                                                                  //
+// Updated Dec 2020:                                                //
+//  - See https://github.com/Sizzl/AssaultRunner for update history //
+//                                                                  //
+//==================================================================//
+
 class ASARO expands Mutator config(AssaultRunner);
 
 var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged;
@@ -131,6 +132,8 @@ event Timer()
 	if (!bGotWorldStamp && !bProcessedEndGame)
 	{
 		if (LeagueAssault(Level.Game).bMapStarted) {
+			if (bAutoDemoRec)
+				RequestDemo();
 			WorldStamp = Level.TimeSeconds;
 			LifeStamp = (Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000);
 			ElapsedTime = 0;
@@ -490,7 +493,6 @@ function OptimisePlayerStarts()
 					if (ASAROPlayer != None)
 					{
 						ASAROPlayer.SetLocation(NextPS.Location);
-						ASAROPlayer.SetRotation(NextPS.Rotation);
 					}
 					ChosenPS = NextPS;
 					if (bDebug)
@@ -805,6 +807,22 @@ function Mutate(string MutateString, PlayerPawn Sender)
 			SaveConfig();
 
 		}
+		else if (Left(MutateString,7)~="ar demo" || Left(MutateString,7)~="ar auto")
+		{
+			if (bAutoDemoRec)
+			{
+				bAutoDemoRec=False;
+				Sender.ClientMessage("Demos will not automatically be recorded in future.");
+			}
+			else
+			{
+				bAutoDemoRec=True;
+				Sender.ClientMessage("Demos will automatically be recorded.");
+				RequestDemo();
+			}
+			SaveConfig();
+
+		}
 		else if (Left(MutateString,7)~="ar list")
 		{
     		for (i = 0; i < 32; i++)
@@ -980,7 +998,7 @@ function RestartMap()
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0f by timo@utassault.net"
+     AppString="AssaultRunner Offline version 1.0g by timo@utassault.net"
      ShortAppString="AssaultRunner:"
      bEnabled=True
      bCheatsEnabled=False
