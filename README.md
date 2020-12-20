@@ -44,5 +44,5 @@ The AssaultRunner mutator supports the following commands:
  - `mutate ar forts` - Lists all known objectives (FortStandards) and their completion status
  - `mutate ar list` - Lists all spawn points (PlayerStarts)
  - `mutate ar showps` - Unhides all spawn points (PlayerStarts), even after the map has started
- - `mutate ar superdebug¬ - Very verbose debug information.
+ - `mutate ar superdebug` - Very verbose debug information.
  
