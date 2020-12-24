@@ -370,6 +370,7 @@ event Trigger(Actor Other, Pawn EventInstigator)
 	}
 }
 
+
 function AttachFortStandards()
 {
 	// Attach a trigger variant to the fortstandards to call back to this mutator for time tracking in GRI
@@ -379,9 +380,13 @@ function AttachFortStandards()
 	foreach AllActors(Class'FortStandard',F)
 	{
 		C = Spawn( Class'Engine.Counter', F, , F.Location );
+		if (bDebug)
+			log("Spawned objective counter hook"@C.Name@"for"@F.Name@"("$F.FortName$"), using event handler '"$F.Event$"'",'ASARO');
 		if (F.Event == '')
 		{
-			F.Event='ASAROFortHook';
+			F.Event=GenerateFortEvent(F);
+			if (bDebug)
+				log(F.Name@" required a new Event handler, provided it with:"@F.Event,'ASARO');
 		}
 		C.Tag = F.Event;
 		C.NumToCount = 1;
@@ -505,30 +510,46 @@ function OptimisePlayerStarts()
 
 	// Repeat for inactive PlayerStarts, grouped by tag
 	if (bDebug)
-		log("Optimising future PlayerStarts...",'ASARO');
+		log("Optimising future PlayerStarts (other than "$ChosenPS.Name$")...",'ASARO');
 	foreach AllActors(Class'PlayerStart',PS)
 	{
-		if (PS.TeamNumber==1 && !(PS.bEnabled) && PS.Tag != 'SlowAssPlayerStart' && PS.Tag != 'ASAROSelectablePlayerStart' && PS.Tag != '')
+		if (PS.Name != ChosenPS.Name)
 		{
-			ActivePS = PS;
-			NearestFort = NearestObj(ActivePS);
-			if (NearestFort != None)
+			if (PS.TeamNumber==1 && !(PS.bEnabled) && PS.Tag != 'SlowAssPlayerStart' && PS.Tag != 'ASAROSelectablePlayerStart' && PS.Tag != '' && PS.Name != ChosenPS.Name)
 			{
-				if (bDebug) log("Found closest objective to inactive PlayerStart ("$ActivePS.Name$"):"@NearestFort.Name,'ASARO');
-				NearestPSToFort = NearestPlayerStart(NearestFort,false,ActivePS.TeamNumber,ActivePS.Tag);
-				foreach AllActors(Class'PlayerStart',PS,ActivePS.Tag)
+				ActivePS = PS;
+				NearestFort = NearestObj(ActivePS);
+				if (NearestFort != None)
 				{
-					if (PS.Name != NearestPSToFort.Name)
+					if (bDebug) log("Found closest objective to inactive PlayerStart ("$ActivePS.Name$"):"@NearestFort.Name,'ASARO');
+					NearestPSToFort = NearestPlayerStart(NearestFort,false,ActivePS.TeamNumber,ActivePS.Tag);
+					foreach AllActors(Class'PlayerStart',PS,ActivePS.Tag)
 					{
-						DisablePlayerStart(PS,false,true);
-					}
-					else
-					{
-						if (bDebug)
-							log("The most optimal future PlayerStart to the closest objective ("$NearestFort.Name$") is being used:"@PS.Name,'ASARO');	
+						if (PS.Name != ChosenPS.Name)
+						{
+							if (PS.Name != NearestPSToFort.Name)
+							{
+								DisablePlayerStart(PS,false,true);
+							}
+							else
+							{
+								if (bDebug)
+									log("The most optimal future PlayerStart to the closest objective ("$NearestFort.Name$") is being used:"@PS.Name,'ASARO');	
+							}
+						}
+						else
+						{
+							 if (bDebug)
+								log("Ignoring primary spawn point ("$NearestFort.Name$")."@PS.Name,'ASARO');	
+						}
 					}
 				}
 			}
+		}
+		else
+		{
+			if (bDebug)
+				log("Ignoring primary spawn point ("$NearestFort.Name$")."@PS.Name,'ASARO');	
 		}
 	}
 
@@ -962,6 +983,89 @@ function bool MutatorTeamMessage(Actor Sender, Pawn Receiver, PlayerReplicationI
 		return true;
 }
 
+function name GenerateFortEvent(Actor A)
+{
+	local int i;
+	local name Event;
+	// can't easily cast string to name in this silly engine
+
+	if (Left(Right(A.Name,2),1)~="d" || Left(Right(A.Name,2),1)~="e" || Left(Right(A.Name,2),1)~="r")
+		i = int(Right(A.Name,1));
+	else
+		i = int(Right(A.Name,2));
+
+	Event = 'ASAROHookedEvent';
+
+	switch(i)
+    {
+    	case 0:
+    		Event = 'ASAROHookedEvent0';
+    		break;
+    	case 1:
+    		Event = 'ASAROHookedEvent1';
+    		break;
+    	case 2:
+    		Event = 'ASAROHookedEvent2';
+    		break;
+    	case 3:
+    		Event = 'ASAROHookedEvent3';
+    		break;
+    	case 4:
+    		Event = 'ASAROHookedEvent4';
+    		break;
+    	case 5:
+    		Event = 'ASAROHookedEvent5';
+    		break;
+    	case 6:
+    		Event = 'ASAROHookedEvent6';
+    		break;
+    	case 7:
+    		Event = 'ASAROHookedEvent7';
+    		break;
+    	case 8:
+    		Event = 'ASAROHookedEvent8';
+    		break;
+    	case 9:
+    		Event = 'ASAROHookedEvent9';
+    		break;
+    	case 10:
+    		Event = 'ASAROHookedEvent10';
+    		break;
+    	case 11:
+    		Event = 'ASAROHookedEvent11';
+    		break;
+    	case 12:
+    		Event = 'ASAROHookedEvent12';
+    		break;
+    	case 13:
+    		Event = 'ASAROHookedEvent13';
+    		break;
+    	case 14:
+    		Event = 'ASAROHookedEvent14';
+    		break;
+    	case 15:
+    		Event = 'ASAROHookedEvent15';
+    		break;
+    	case 16:
+    		Event = 'ASAROHookedEvent16';
+    		break;
+    	case 17:
+    		Event = 'ASAROHookedEvent17';
+    		break;
+    	case 18:
+    		Event = 'ASAROHookedEvent18';
+    		break;
+    	case 19:
+    		Event = 'ASAROHookedEvent19';
+    		break;
+    	case 20:
+    		Event = 'ASAROHookedEvent20';
+    		break;
+    }
+
+    return Event;
+}
+
 function bool RequestDemo()
 {
 	if (bRecording==true)
@@ -998,7 +1102,7 @@ function RestartMap()
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0g by timo@utassault.net"
+     AppString="AssaultRunner Offline version 1.0i by timo@utassault.net"
      ShortAppString="AssaultRunner:"
      bEnabled=True
      bCheatsEnabled=False
