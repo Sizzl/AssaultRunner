@@ -9,10 +9,11 @@
 class ASARO expands Mutator config(AssaultRunner);
 
 // AssaultRunner vars
-var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged, bIsRestarting, bTimerDriftDetected, bIncludeCustomForts;
-var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo;
-var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount, ISSlot, Drift, iTolerance, LastCRC;
-var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS;
+var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged, bIsRestarting, bTimerDriftDetected, bIncludeCustomForts, bIsDodging, bMetric, bRecordingJump, bHideDodgeStats;
+var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo, PlayerMovementData[5], InitialGame;
+var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount, ISSlot, Drift, iTolerance, LastCRC, DodgeCount, JumpsWhileWalking, JumpsWhileFalling, JumpsWhileSwimming, JumpsWhileOther, JumpsCaught;
+var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging;
+var vector PrevLocation;
 
 var LeagueAS_GameReplicationInfo LeagueASGameReplicationInfo;
 var PlayerPawn Debugger, ASAROPlayer;
@@ -67,6 +68,7 @@ event PreBeginPlay()
 				AttackingTeam = 0;
 			else
 				AttackingTeam = 1;
+			// TO-DO: Detect if attacking / defending and RestartMap() if bAttackOnly is true
 
 			ForEach AllActors(class'FortStandard', F)
 			{
@@ -78,7 +80,16 @@ event PreBeginPlay()
 			SimCounter = 0;
 			bGotWorldStamp = false;
 			bProcessedEndGame = false;
+			
+			DodgeCount = 0;
+			TimeDodging = 0;
+			DistanceMoved = 0;
 
+			JumpsWhileWalking = 0;
+			JumpsWhileFalling= 0;
+			JumpsWhileOther = 0;
+			JumpsCaught = 0;
+			
 			StartZ = -1;
 			StartAS = -1;
 			StartWS = -1;
@@ -106,13 +117,13 @@ event PreBeginPlay()
 			}
 			else
 				log(AppString@"initialization complete. (Mode = "$String(Level.NetMode)$").");
-			Initialized=True;
+			Initialized = true;
 		} else {
 			bProcessedEndGame = true;
 			log(AppString@"running, but disabled (not AS gametype).");
-			Initialized=True;
+			Initialized = true;
 		}
-		Initialized=True;
+		Initialized = true;
 	}
 	else
 	{
@@ -120,10 +131,31 @@ event PreBeginPlay()
 		{
 			bProcessedEndGame = true;
 			log(AppString@"running, but disabled (bEnabled = false).");
-			Initialized=True;
+			Initialized = true;
 		}
 	}
 }
+
+function ModifyPlayer(Pawn Other)
+{
+	local JumpTracker JT;
+
+	Super.ModifyPlayer(Other);
+
+	if ( Other.IsA('Spectator') || Other.FindInventoryType(class'JumpTracker') != None )
+		return;
+	JT = Spawn(class'JumpTracker',,, Location);
+	if ( JT != None )
+	{
+		JT.ParentRunner = self;
+		JT.bHeldItem = false;
+		JT.GiveTo(Other);
+		JT.bActive = true;
+		JT.Activate();
+		Other.SelectedItem = JT;
+	}
+}
+
 
 function string GDP(string Input, int Places)
 {
@@ -136,7 +168,7 @@ function string GDP(string Input, int Places)
 event Timer()
 {
 	local bool bStopCountDown;
-	local string DataString;
+	local string DataString, DistanceString;
 	local float fLT;
 	local int i;
 	local PlayerStart PS;
@@ -196,6 +228,8 @@ event Timer()
 						{
 							ASAROHUD = LASHUD;
 						}
+						if (LeagueASGameReplicationInfo == None)
+							LeagueASGameReplicationInfo = LeagueAS_GameReplicationInfo(ASAROPlayer.GameReplicationInfo);
 					}
 
 				}
@@ -217,10 +251,17 @@ event Timer()
 					if (Len(LeagueASGameReplicationInfo.FortName[i]) > 0 && Left(LeagueASGameReplicationInfo.FortCompleted[i],15) ~= "Completed! - By")
 					{
 						LeagueASGameReplicationInfo.FortCompleted[i] = "Completed @ "$FortTimes[i];
+						if (!bHideDodgeStats)
+						{
+							LeagueASGameReplicationInfo.FortCompleted[i] = LeagueASGameReplicationInfo.FortCompleted[i]$"; Dodges:"@DodgeCount$", Dodge Time:"@GDP(string(DodgeTime),3);
+						}
 						if (bDebug)
 							log("Overwriting scoreboard for objective "$LeagueASGameReplicationInfo.FortName[i]$"; completed at - "$FortTimes[i],'ASARO');
 					}
 				}
+				if (InitialGame =="")
+					InitialGame = LeagueASGameReplicationInfo.GameName;
+
 			}
 
 			// Check for naughty boys and girls (and any other non-binary specific naughty humans, aliens, or animals who might have evolved to play this game)
@@ -244,6 +285,39 @@ event Timer()
 
 				if (ASAROPlayer.GroundSpeed != StartGS || ASAROPlayer.WaterSpeed != StartWS || ASAROPlayer.AirSpeed != StartAS)
 					bSpeedChanged=True;
+
+				
+				if (ASAROPlayer.bPressedJump  && !bRecordingJump)
+				{ 
+					bRecordingJump = true;
+					JumpsCaught++;
+				}
+				else
+					bRecordingJump = false;
+
+				/*
+				if (ASAROPlayer.DodgeDir==5)
+				{
+					bIsDodging = true;
+					DodgeTime = float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true));
+				}
+				
+				if (ASAROPlayer.DodgeDir!=5 && bIsDodging)
+				{
+					bIsDodging = false;
+					TimeDodging += float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true))-DodgeTime;
+					DodgeCount++;
+				}
+				*/
+						
+				PlayerMovementData[1] = "bBo:"@ASAROPlayer.bBounce$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bW:"@ASAROPlayer.bIsWalking$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bT:"@ASAROPlayer.bIsTurning$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bJL:"@ASAROPlayer.bJustLanded$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bJS:"@ASAROPlayer.bJumpStatus$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bPrJ:"@ASAROPlayer.bPressedJump$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bRg:"@ASAROPlayer.bRising$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bRun:"@ASAROPlayer.bRun$";";
 			}
 			// Check for a scoreboard to overwrite
 			if (ASAROPlayer.Scoring != None) {
@@ -273,10 +347,41 @@ event Timer()
 					TournamentScoreBoard(ASAROPlayer.Scoring).GreenColor.G = 255;
 					TournamentScoreBoard(ASAROPlayer.Scoring).GreenColor.B = 255;
 				}
+				
 				TournamentScoreBoard(ASAROPlayer.Scoring).Ended = AppString;
 				fLT = fConquerLife / (Assault(Level.Game).GameSpeed * Level.TimeDilation);
 				DataString = "[L:"$GDP(string(fLT),3)@"| E:"$GDP(string(ElapsedTime),0)@"| G:"$GDP(string(Assault(Level.Game).GameSpeed),2)@"| D:"$GDP(string(Level.TimeDilation),2)@"| A:"$GDP(string(Assault(Level.Game).AirControl),2)$ExtraData$"]";
-				TournamentScoreBoard(ASAROPlayer.Scoring).Continue = DataString@CRCInfo;
+				//TournamentScoreBoard(ASAROPlayer.Scoring).Continue = DataString@CRCInfo;
+				TournamentScoreBoard(ASAROPlayer.Scoring).Continue = "";
+				if (bMetric)
+				{
+					fLT = DistanceMoved/52.5;
+					if (fLT > 9999)
+					{
+						fLT = fLT / 1000;
+						DistanceString = GDP(string(fLT),3)$"km";
+					}
+					else
+						DistanceString = int(fLT)$"m";
+				}
+				else
+				{
+					fLT = DistanceMoved/16;
+					if (fLT > 9999)
+					{
+						fLT = fLT / 5280;
+						DistanceString = GDP(string(fLT),3)$"mi";
+					}
+					else
+						DistanceString = int(fLT)$"ft";
+				}
+				if (LeagueASGameReplicationInfo != None)
+				{
+					if (bHideDodgeStats)
+						LeagueASGameReplicationInfo.GameName = InitialGame@"("$ShortAppString@DataString@CRCInfo$")"@"Distance:"@DistanceString;
+					else
+						LeagueASGameReplicationInfo.GameName = InitialGame@"("$ShortAppString@DataString@CRCInfo$")"@"Dodges:"@DodgeCount$", Dodge Time:"@GDP(string(DodgeTime),3)$"s, Distance:"@DistanceString;
+				}
 				if (bProcessedEndGame)
 					SetTimer(1.0,true);
 				else
@@ -337,7 +442,7 @@ simulated function Tick(float DeltaTime)
 simulated function PostRender(canvas Canvas)
 {
 	local GameReplicationInfo GRI;
-	local float XL, YL;
+	local float XL, YL, fLT;
 	local int cLine;
 	local bool bIsC;
 	//local font CanvasFont; // TO-DO, font-scaling
@@ -369,6 +474,83 @@ simulated function PostRender(canvas Canvas)
 			StartAS = ASAROPlayer.AirSpeed;
 			
 
+		if (ASAROPlayer.bPressedJump  && !bRecordingJump)
+		{ 
+			bRecordingJump = true;
+			JumpsCaught++;
+		}
+		else
+			bRecordingJump = false;
+
+		if (ASAROPlayer.DodgeDir==5)
+		{
+			if (!bIsDodging)
+				DodgeTime = float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true));
+			bIsDodging = true;
+		}
+		
+		if (ASAROPlayer.DodgeDir!=5 && bIsDodging)
+		{
+			bIsDodging = false;
+			TimeDodging += float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true))-DodgeTime;
+			DodgeCount++;
+		}
+
+		/*
+		Unreal Units (source: https://web.archive.org/web/20201023072317/https://wiki.beyondunreal.com/Legacy:Unreal_Unit )
+		256 UU = 487.68 cm = 16 feet.
+		1 meter = 52.5 UU
+		1 foot = 16 UU
+		1 cm = 0.525 UU
+		1 UU = 0.75 inches
+		*/
+		if (PrevLocation != vect(0,0,0) && ASAROPlayer.Health > 0)
+			DistanceMoved += DistanceBetween(PrevLocation,ASAROPlayer.Location,true);
+
+		PrevLocation = ASAROPlayer.Location;
+		if (bMetric)
+		{
+			fLT = DistanceMoved/52.5;
+			if (fLT > 9999)
+			{
+				fLT = fLT / 1000;
+				PlayerMovementData[0] = "Distance:"@GDP(string(fLT),3)$"km";
+			}
+			else
+				PlayerMovementData[0] = "Distance:"@ZeroPad(fLT,4)$"m";
+		}
+		else
+		{
+			fLT = DistanceMoved/16;
+			if (fLT > 9999)
+			{
+				fLT = fLT / 5280;
+				PlayerMovementData[0] = "Distance:"@GDP(string(fLT),3)$"mi";
+			}
+			else
+				PlayerMovementData[0] = "Distance:"@ZeroPad(fLT,4)$"ft";
+		}
+
+		PlayerMovementData[0] = PlayerMovementData[0]$"; Dodge Count:"@ZeroPad(DodgeCount,4);
+		PlayerMovementData[0] = PlayerMovementData[0]$"; Dodge Time:"@GDP(string(TimeDodging),3)$"s";
+
+		PlayerMovementData[2] = "Bob:"@ASAROPlayer.bobtime$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"CTag:"@ASAROPlayer.CollisionTag$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"DCT:"@ASAROPlayer.DodgeClickTimer$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"DDir:"@ASAROPlayer.DodgeDir$";"; // GetEnum( object E, int i );
+		PlayerMovementData[2] = PlayerMovementData[2]@"Phys:"@ASAROPlayer.Physics$";";  // GetEnum( object E, int i );
+		PlayerMovementData[2] = PlayerMovementData[2]@"MvTi:"@ASAROPlayer.MoveTimer$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"Velo:"@ASAROPlayer.Velocity$";";
+
+		PlayerMovementData[3] = "Walking:"@JumpsWhileWalking$";";
+		PlayerMovementData[3] = PlayerMovementData[3]@"Falling:"@JumpsWhileFalling$";";
+		PlayerMovementData[3] = PlayerMovementData[3]@"Swimming:"@JumpsWhileSwimming$";";
+		PlayerMovementData[3] = PlayerMovementData[3]@"Other:"@JumpsWhileOther$";";
+		PlayerMovementData[3] = PlayerMovementData[3]@"Delayed:"@JumpsCaught$";";
+
+		PlayerMovementData[4] = "Loc:"@ASAROPlayer.Location$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"OldLoc:"@ASAROPlayer.OldLocation$";";
+
   		ASAROHUD = ASAROPlayer.myHUD;
   		GRI = ASAROPlayer.GameReplicationInfo;
 
@@ -379,9 +561,13 @@ simulated function PostRender(canvas Canvas)
 			Canvas.DrawColor.B = 255;
 			bIsC = Canvas.bCenter;
 			Canvas.bCenter = true;
-			Canvas.SetPos(0, 1 * YL);
+			cLine = 1;
+			Canvas.SetPos(0, cLine * YL);
+			Canvas.DrawText(PlayerMovementData[0]);
+			cLine++;
+			Canvas.SetPos(0, cLine * YL);
 			Canvas.DrawText(ReturnTimeStr(!bProcessedEndGame,false,bDebug,false));
-			cLine = 2;
+			cLine++;
 			if (bTimerDriftDetected && !bIsRestarting)
 			{
 				Canvas.DrawColor.R = 255;
@@ -405,6 +591,18 @@ simulated function PostRender(canvas Canvas)
 				cLine++;
 				Canvas.SetPos(0, cLine * YL);
 				Canvas.DrawText("Real-world sampling:"@ReturnTimeStr(!bProcessedEndGame,true,false,true)); // real times, ignoring extra debug info
+				cLine++;
+				Canvas.SetPos(0, cLine * YL);
+				Canvas.DrawText("Movement sampling bools:"@PlayerMovementData[1]); 
+				cLine++;
+				Canvas.SetPos(0, cLine * YL);
+				Canvas.DrawText("Movement sampling floats:"@PlayerMovementData[2]); 
+				cLine++;
+				Canvas.SetPos(0, cLine * YL);
+				Canvas.DrawText("Jump stats- "@PlayerMovementData[3]); 
+				cLine++;
+				Canvas.SetPos(0, cLine * YL);
+				Canvas.DrawText("Movement sampling vects:"@PlayerMovementData[4]); 
 				cLine++;
 				if (ExtraData != "")
 				{
@@ -1245,17 +1443,28 @@ function DisablePlayerStart (PlayerStart PS, bool bInitial, bool bOptimising)
 }
 function float DistanceFrom (Actor A1, Actor A2)
 {
+
+	return DistanceBetween(A1.Location,A2.Location,false);
+}
+
+function float DistanceBetween (vector V1, vector V2, optional bool bExcludeHeight)
+{
 	local float DistanceX;
 	local float DistanceY;
 	local float DistanceZ;
 	local float ADistance;
 
-	DistanceX = A1.Location.X - A2.Location.X;
-	DistanceY = A1.Location.Y - A2.Location.Y;
-	DistanceZ = A1.Location.Z - A2.Location.Z;
-	ADistance = Sqrt(Square(DistanceX) + Square(DistanceY) + Square(DistanceZ));
+	DistanceX = V1.X - V2.X;
+	DistanceY = V1.Y - V2.Y;
+	DistanceZ = V1.Z - V2.Z;
+	
+	if (bExcludeHeight)
+		ADistance = Sqrt(Square(DistanceX) + Square(DistanceY));
+	else
+		ADistance = Sqrt(Square(DistanceX) + Square(DistanceY) + Square(DistanceZ));
 	return ADistance;
 }
+
 
 function PlayerStart NearestPlayerStart (Actor A, bool bActiveOnly, int TeamNumber, name Tag)
 {
@@ -1339,7 +1548,7 @@ function LogGameEnd()
 	SetTimer(0.05,true);
 }
 
-function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTime, bool bIgnoreDebug)
+function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTime, bool bIgnoreDebug, optional bool bFloatOnly)
 {
 	local int Minutes, Seconds;
 	local string TimeResult,strSubTime, DataString;
@@ -1394,11 +1603,16 @@ function string ReturnTimeStr(bool bLiveTimer, bool bRealTime, bool bShowFullTim
 	}
 	else
 		DataString = "";
+
+	if (bFloatOnly)
+		TimeResult = string(subTime);
+	else
+	{		
+		if (!bIgnoreDebug && (bSuperDebug || bDebug || bShowFullTime))
+			strSubTime = strSubTime@"(Non-dilated:"$(ConquerTime)$DataString$")";
 		
-	if (!bIgnoreDebug && (bSuperDebug || bDebug || bShowFullTime))
-		strSubTime = strSubTime@"(Non-dilated:"$(ConquerTime)$DataString$")";
-		
-	TimeResult = TimeResult$"."$strSubTime;
+		TimeResult = TimeResult$"."$strSubTime;
+	}
 	return TimeResult;
 }
 
@@ -1535,6 +1749,26 @@ function Mutate(string MutateString, PlayerPawn Sender)
 				RequestDemo();
 			}
 			SaveConfig();
+
+		}
+		else if (Left(MutateString,14)~="ar toggledodge")
+		{
+			bHideDodgeStats = !bHideDodgeStats;
+			if (bHideDodgeStats)
+				Sender.ClientMessage("Dodge stats will be hidden from the scoreboard.");
+			else
+				Sender.ClientMessage("Dodge stats will be visible on the scoreboard.");
+			SaveConfig();			
+
+		}
+		else if (Left(MutateString,13)~="ar toggleunit")
+		{
+			bMetric = !bMetric;
+			if (bMetric)
+				Sender.ClientMessage("Distance is now measured in metric units (1 unreal unit = 1.904 cm)");
+			else
+				Sender.ClientMessage("Distance is now measured in imperial units (1 unreal unit = 0.75 inches)");
+			SaveConfig();			
 
 		}
 		else if (Left(MutateString,15)~="ar togglecustom" || Left(MutateString,9)~="ar custom")
@@ -1715,6 +1949,21 @@ function bool MutatorTeamMessage(Actor Sender, Pawn Receiver, PlayerReplicationI
 		return true;
 }
 
+function string ZeroPad(int Value, int Length)
+{
+	local string S;
+	local int i;
+	S = string(Value);
+	if (Len(S) < Length)
+	{
+		for (i = Len(S); i < Length; i++)
+		{
+			S = "0"$S;
+		}
+	}
+	return S;
+}
+
 function name GenerateFortEvent(Actor A)
 {
 	local int i;
@@ -1855,8 +2104,10 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 {
 	local HackProtection HP, FindHP;
 	local int i, j, next;
+	local bool bProcessedP1;
 	local string p1, p2;
-	
+	local class<object> C;
+
 	// Check self and map
 	p1 = Left(string(self.class), InStr(string(self.class), "."));
 	p2 = Left(Self, InStr(Self, "."));
@@ -1893,12 +2144,18 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 				}
 			}
 		}
-		HP.CRCPackagesReq[next] = p1$";0;255;0;0";
-		HP.CRCPackagesReq[next+1] = p2$";0;255;0;0";
+		HP.CRCPackagesReq[next] = p1$";1;255;0;0";
+		HP.CRCPackagesReq[next+1] = p2$";1;255;0;0";
 	}
 
 	if (!bUpdatesOnly)
+	{
+		// Preload classes
+		C = class<object>(DynamicLoadObject(p1$".ASARO",class'object'));
+		C = class<object>(DynamicLoadObject(p2$".unr",class'object'));
+		// Init checks
 		HP.InitCRCChecks();
+	}
 	
 	for (i = 0; i < 8; i++)
 	{
@@ -1906,33 +2163,38 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 		{
 			if (bDebug)
 				log("LeagueAS has CRC data for"@p1,'ASARO');
-			CRCInfo = "{";
+
+			if (Len(CRCInfo) == 0 || bUpdatesOnly)
+				CRCInfo = "{";		
 			for (j = 0; j < 6; j++)
 			{
 				if (HP.zzCRCServerCRCs[i].Checksums[j] != 0)
 					CRCInfo = CRCInfo$HP.zzCRCServerCRCs[i].Checksums[j]$",";
 			}
-			CRCInfo = Left(CRCInfo,Len(CRCInfo)-1);
+			bProcessedP1 = true;
 		}
 		if (HP.zzCRCPackageData[i].PackageName ~= p2)
 		{
 			if (bDebug)
 				log("LeagueAS has CRC data for"@p2,'ASARO');
-			if (Len(CRCInfo) == 0)
+			if (Len(CRCInfo) == 0 || bUpdatesOnly && !bProcessedP1)
 				CRCInfo = "{";
 			else
+			{
+				if (Right(CRCInfo,1)~=",")
+					CRCInfo = Left(CRCInfo,Len(CRCInfo)-1);
 				CRCInfo = CRCInfo$";";
+			}
 			for (j = 0; j < 6; j++)
 			{
 				if (HP.zzCRCServerCRCs[i].Checksums[j] != 0)
 					CRCInfo = CRCInfo$HP.zzCRCServerCRCs[i].Checksums[j]$",";
 			}
-			CRCInfo = Left(CRCInfo,Len(CRCInfo)-1);
 		}
 	}
-	if (Len(CRCInfo) > 1)
+	if (Len(CRCInfo) > 1 && Right(CRCInfo,1) ~= ",")
 	{
-		CRCInfo = CRCInfo$";"$HP.CRCKey$"}";
+		CRCInfo = Left(CRCInfo,Len(CRCInfo)-1)$";"$HP.CRCKey$"}";
 	}
 }
 
@@ -1940,13 +2202,14 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0j by timo@utassault.net"
-     ShortAppString="AssaultRunner:"
+     AppString="AssaultRunner Offline version 1.0k by timo@utassault.net"
+     ShortAppString="AssaultRunner 1.0k:"
      bEnabled=True
      bCheatsEnabled=False
      bAttackOnly=True
      bAllowRestart=True
      bHUDAlwaysVisible=True
+     bMetric=True
      iResolution=3
      iTolerance=1
      bAutoDemoRec=True
@@ -1963,5 +2226,6 @@ defaultproperties
      bAutoStorePlayerIntervals=True
      bMigrated=False
      bIncludeCustomForts=True
+     bHideDodgeStats=False
      Group='ASARO'
 }

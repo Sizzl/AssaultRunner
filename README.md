@@ -25,7 +25,7 @@ This mod has a prerequisite of LeagueAS140 (including server files). This can be
 ### Starting ASARO via command line
 
 Either through the UT console, or as a command-line parameter in a shortcut when launching UT:
-- `open AS-Bridge?game=LeagueAS140.LeagueAssault?mutator=ASARO1j.ASARO`
+- `open AS-Bridge?game=LeagueAS140.LeagueAssault?mutator=ASARO1k.ASARO`
 
 ### Commands
 
@@ -39,6 +39,8 @@ The AssaultRunner mutator supports the following commands:
  - `mutate ar cheat` - Cheats are disabled by default, using this command will unlock built in commands such as "god", "ghost", "fly", "summon"; however, toggling this or using any of those commands will "taint" the final screenshot to show that cheats have been used.
  - `mutate ar togglehud` - HUD Visibility is forced on by default, use this command to stop this behaviour.
  - `mutate ar togglecustomobjs` - Toggles custom speed-run specific objectives.
+ - `mutate ar toggledodgestats` - Toggles dodge statistics from being visible on the scoreboard.
+ - `mutate ar toggleunit` - Toggles between metric and imperial units for distance tracking.
 
 #### Personal interval flags
 
