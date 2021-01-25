@@ -10,7 +10,7 @@ class ASARO expands Mutator config(AssaultRunner);
 
 // AssaultRunner vars
 var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpPhysicsAltered, bJumpChanged, bWFJ, bIsRestarting, bTimerDriftDetected, bIncludeCustomForts, bIsDodging, bMetric, bRecordingJump, bHideDodgeStats, bLowRes;
-var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo, PlayerMovementData[5], InitialGame;
+var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo, PlayerMovementData[6], InitialGame;
 var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount, ISSlot, Drift, iTolerance, LastCRC, DodgeCount, JumpsWhileWalking, JumpsWhileFalling, JumpsWhileSwimming, JumpsWhileOther, JumpsCaught;
 var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging, LastJumpVelo, PeakVD;
 var vector PrevLocation;
@@ -300,20 +300,6 @@ event Timer()
 				else
 					bRecordingJump = false;
 
-				
-				if (ASAROPlayer.DodgeDir==5)
-				{
-					bIsDodging = true;
-					DodgeTime = float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true));
-				}
-				
-				if (ASAROPlayer.DodgeDir!=5 && bIsDodging)
-				{
-					bIsDodging = false;
-					TimeDodging += float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true))-DodgeTime;
-					DodgeCount++;
-				}
-				
 				/*
 				Unreal Units (source: https://web.archive.org/web/20201023072317/https://wiki.beyondunreal.com/Legacy:Unreal_Unit )
 				256 UU = 487.68 cm = 16 feet.
@@ -329,6 +315,10 @@ event Timer()
 				// Location and dodging stats written out in PostRender
 
 				PlayerMovementData[1] = "bBo:"@ASAROPlayer.bBounce$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bWF:"@ASAROPlayer.bWasForward$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bWB:"@ASAROPlayer.bWasBack$";";
+				PlayerMovementData[1] = PlayerMovementData[1]@"bWL:"@ASAROPlayer.bWasLeft$";"; // interestingly these are the wrong way round in playerpawn (L/R)
+				PlayerMovementData[1] = PlayerMovementData[1]@"bWR:"@ASAROPlayer.bWasRight$";"; // interestingly these are the wrong way round in playerpawn (R/L)
 				PlayerMovementData[1] = PlayerMovementData[1]@"bW:"@ASAROPlayer.bIsWalking$";";
 				PlayerMovementData[1] = PlayerMovementData[1]@"bT:"@ASAROPlayer.bIsTurning$";";
 				PlayerMovementData[1] = PlayerMovementData[1]@"bJL:"@ASAROPlayer.bJustLanded$";";
@@ -564,19 +554,20 @@ simulated function PostRender(canvas Canvas)
 		PlayerMovementData[2] = PlayerMovementData[2]@"DDir:"@ASAROPlayer.DodgeDir$";"; // GetEnum( object E, int i );
 		PlayerMovementData[2] = PlayerMovementData[2]@"Phys:"@ASAROPlayer.Physics$";";  // GetEnum( object E, int i );
 		PlayerMovementData[2] = PlayerMovementData[2]@"MvTi:"@ASAROPlayer.MoveTimer$";";
-		PlayerMovementData[2] = PlayerMovementData[2]@"Velo:"@ASAROPlayer.Velocity$";";
-		PlayerMovementData[2] = PlayerMovementData[2]@"VD:"$int(fLT);
-		PlayerMovementData[2] = PlayerMovementData[2]@"Peak VD:"$int(PeakVD);
+		
+		PlayerMovementData[3] = "Velocity:"@ASAROPlayer.Velocity$";";
+		PlayerMovementData[3] = PlayerMovementData[3]@"VD:"$int(fLT);
+		PlayerMovementData[3] = PlayerMovementData[3]@"Peak VD:"$int(PeakVD);
 
-		PlayerMovementData[3] = "Walking:"@JumpsWhileWalking$";";
-		PlayerMovementData[3] = PlayerMovementData[3]@"Falling:"@JumpsWhileFalling$";";
-		PlayerMovementData[3] = PlayerMovementData[3]@"Swimming:"@JumpsWhileSwimming$";";
-		PlayerMovementData[3] = PlayerMovementData[3]@"Other:"@JumpsWhileOther$";";
-		PlayerMovementData[3] = PlayerMovementData[3]@"Delayed:"@JumpsCaught$";";
-		PlayerMovementData[3] = PlayerMovementData[3]@"Last Jump Velocity:"@GDP(string(LastJumpVelo),3);
+		PlayerMovementData[4] = "Walking:"@JumpsWhileWalking$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"Falling:"@JumpsWhileFalling$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"Swimming:"@JumpsWhileSwimming$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"Other:"@JumpsWhileOther$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"Delayed:"@JumpsCaught$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"Last Jump Velocity:"@GDP(string(LastJumpVelo),3);
 
-		PlayerMovementData[4] = "Loc:"@ASAROPlayer.Location$";";
-		PlayerMovementData[4] = PlayerMovementData[4]@"OldLoc:"@ASAROPlayer.OldLocation$";";
+		PlayerMovementData[5] = "Loc:"@ASAROPlayer.Location$";";
+		PlayerMovementData[5] = PlayerMovementData[5]@"OldLoc:"@ASAROPlayer.OldLocation$";";
 
   		ASAROHUD = ASAROPlayer.myHUD;
   		GRI = ASAROPlayer.GameReplicationInfo;
@@ -636,10 +627,13 @@ simulated function PostRender(canvas Canvas)
 				Canvas.DrawText("Movement sampling floats:"@PlayerMovementData[2]); 
 				cLine++;
 				Canvas.SetPos(0, cLine * YL);
-				Canvas.DrawText("Jump stats- "@PlayerMovementData[3]); 
+				Canvas.DrawText("Movement sampling floats:"@PlayerMovementData[3]); 
 				cLine++;
 				Canvas.SetPos(0, cLine * YL);
-				Canvas.DrawText("Movement sampling vects:"@PlayerMovementData[4]); 
+				Canvas.DrawText("Jump stats- "@PlayerMovementData[4]); 
+				cLine++;
+				Canvas.SetPos(0, cLine * YL);
+				Canvas.DrawText("Movement sampling vects:"@PlayerMovementData[5]); 
 				cLine++;
 				if (ExtraData != "")
 				{
