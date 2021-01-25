@@ -2233,8 +2233,8 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0l by timo@utassault.net"
-     ShortAppString="AssaultRunner 1.0l:"
+     AppString="AssaultRunner Offline version 1.0m by timo@utassault.net"
+     ShortAppString="AssaultRunner 1.0m:"
      bEnabled=True
      bCheatsEnabled=False
      bAttackOnly=True
