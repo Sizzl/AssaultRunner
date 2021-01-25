@@ -9,10 +9,10 @@
 class ASARO expands Mutator config(AssaultRunner);
 
 // AssaultRunner vars
-var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpChanged, bIsRestarting, bTimerDriftDetected, bIncludeCustomForts, bIsDodging, bMetric, bRecordingJump, bHideDodgeStats;
+var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpPhysicsAltered, bJumpChanged, bWFJ, bIsRestarting, bTimerDriftDetected, bIncludeCustomForts, bIsDodging, bMetric, bRecordingJump, bHideDodgeStats, bLowRes;
 var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo, PlayerMovementData[5], InitialGame;
 var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount, ISSlot, Drift, iTolerance, LastCRC, DodgeCount, JumpsWhileWalking, JumpsWhileFalling, JumpsWhileSwimming, JumpsWhileOther, JumpsCaught;
-var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging;
+var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging, LastJumpVelo, PeakVD;
 var vector PrevLocation;
 
 var LeagueAS_GameReplicationInfo LeagueASGameReplicationInfo;
@@ -78,6 +78,7 @@ event PreBeginPlay()
 			TimeLag = TimeLimit * 60;
 			MapAvailableTime = TimeLag;
 			SimCounter = 0;
+			
 			bGotWorldStamp = false;
 			bProcessedEndGame = false;
 			
@@ -195,6 +196,7 @@ event Timer()
 	}
 	if (!bGotWorldStamp && !bProcessedEndGame)
 	{
+		bIsRestarting = false;
 		if (bAutoDemoRec && !bRecording)
 			RequestDemo();
 
@@ -253,7 +255,10 @@ event Timer()
 						LeagueASGameReplicationInfo.FortCompleted[i] = "Completed @ "$FortTimes[i];
 						if (!bHideDodgeStats)
 						{
-							LeagueASGameReplicationInfo.FortCompleted[i] = LeagueASGameReplicationInfo.FortCompleted[i]$"; Dodges:"@DodgeCount$", Dodge Time:"@GDP(string(DodgeTime),3);
+							if (bLowRes)
+								LeagueASGameReplicationInfo.FortCompleted[i] = LeagueASGameReplicationInfo.FortCompleted[i]$"; ["$DodgeCount$" dodges;"@GDP(string(TimeDodging),3)$"s]";
+							else
+								LeagueASGameReplicationInfo.FortCompleted[i] = LeagueASGameReplicationInfo.FortCompleted[i]$"; Dodges:"@DodgeCount$", Dodge Time:"@GDP(string(TimeDodging),3);
 						}
 						if (bDebug)
 							log("Overwriting scoreboard for objective "$LeagueASGameReplicationInfo.FortName[i]$"; completed at - "$FortTimes[i],'ASARO');
@@ -295,7 +300,7 @@ event Timer()
 				else
 					bRecordingJump = false;
 
-				/*
+				
 				if (ASAROPlayer.DodgeDir==5)
 				{
 					bIsDodging = true;
@@ -308,8 +313,21 @@ event Timer()
 					TimeDodging += float(ReturnTimeStr(!bProcessedEndGame,false,false,false,true))-DodgeTime;
 					DodgeCount++;
 				}
+				
+				/*
+				Unreal Units (source: https://web.archive.org/web/20201023072317/https://wiki.beyondunreal.com/Legacy:Unreal_Unit )
+				256 UU = 487.68 cm = 16 feet.
+				1 meter = 52.5 UU
+				1 foot = 16 UU
+				1 cm = 0.525 UU
+				1 UU = 0.75 inches
 				*/
-						
+				if (PrevLocation != vect(0,0,0) && ASAROPlayer.Health > 0)
+					DistanceMoved += DistanceBetween(PrevLocation,ASAROPlayer.Location,true);
+
+				PrevLocation = ASAROPlayer.Location;
+				// Location and dodging stats written out in PostRender
+
 				PlayerMovementData[1] = "bBo:"@ASAROPlayer.bBounce$";";
 				PlayerMovementData[1] = PlayerMovementData[1]@"bW:"@ASAROPlayer.bIsWalking$";";
 				PlayerMovementData[1] = PlayerMovementData[1]@"bT:"@ASAROPlayer.bIsTurning$";";
@@ -322,7 +340,7 @@ event Timer()
 			// Check for a scoreboard to overwrite
 			if (ASAROPlayer.Scoring != None) {
 
-				if (bLoggedCM || bIDNoclip || bIDDQD || bIDFly || bTurbo || bSpeedChanged || bJumpChanged || bTimerDriftDetected)
+				if (bLoggedCM || bIDNoclip || bIDDQD || bIDFly || bTurbo || bSpeedChanged || bJumpChanged || bJumpPhysicsAltered || bWFJ || bTimerDriftDetected)
 				{
 					ExtraData = " | Detected:";
 					if (bTimerDriftDetected)
@@ -341,7 +359,11 @@ event Timer()
 						ExtraData = ExtraData@"Speed (friction);";
 					if (bJumpChanged)
 						ExtraData = ExtraData@"Jump Height (Z);";
-						
+					if (bJumpPhysicsAltered)
+						ExtraData = ExtraData@"Jump physics (velocity);";
+					if (bWFJ)
+						ExtraData = ExtraData@"Jump physics (bRun);";
+
 					ExtraData = Left(ExtraData,Len(ExtraData)-1);
 					TournamentScoreBoard(ASAROPlayer.Scoring).GreenColor.R = 255;
 					TournamentScoreBoard(ASAROPlayer.Scoring).GreenColor.G = 255;
@@ -349,10 +371,14 @@ event Timer()
 				}
 				
 				TournamentScoreBoard(ASAROPlayer.Scoring).Ended = AppString;
+				fConquerLife = ((Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000)) - LifeStamp;
 				fLT = fConquerLife / (Assault(Level.Game).GameSpeed * Level.TimeDilation);
 				DataString = "[L:"$GDP(string(fLT),3)@"| E:"$GDP(string(ElapsedTime),0)@"| G:"$GDP(string(Assault(Level.Game).GameSpeed),2)@"| D:"$GDP(string(Level.TimeDilation),2)@"| A:"$GDP(string(Assault(Level.Game).AirControl),2)$ExtraData$"]";
-				//TournamentScoreBoard(ASAROPlayer.Scoring).Continue = DataString@CRCInfo;
-				TournamentScoreBoard(ASAROPlayer.Scoring).Continue = "";
+				if (bLowRes)
+					TournamentScoreBoard(ASAROPlayer.Scoring).Continue = CRCInfo;
+				else
+					TournamentScoreBoard(ASAROPlayer.Scoring).Continue = "";
+
 				if (bMetric)
 				{
 					fLT = DistanceMoved/52.5;
@@ -377,10 +403,12 @@ event Timer()
 				}
 				if (LeagueASGameReplicationInfo != None)
 				{
-					if (bHideDodgeStats)
-						LeagueASGameReplicationInfo.GameName = InitialGame@"("$ShortAppString@DataString@CRCInfo$")"@"Distance:"@DistanceString;
+					if (bLowRes)
+						LeagueASGameReplicationInfo.GameName = ShortAppString@DataString$"; Distance:"@DistanceString;
+					else if (bHideDodgeStats)
+						LeagueASGameReplicationInfo.GameName = ShortAppString@DataString@CRCInfo$"; Distance:"@DistanceString;
 					else
-						LeagueASGameReplicationInfo.GameName = InitialGame@"("$ShortAppString@DataString@CRCInfo$")"@"Dodges:"@DodgeCount$", Dodge Time:"@GDP(string(DodgeTime),3)$"s, Distance:"@DistanceString;
+						LeagueASGameReplicationInfo.GameName = ShortAppString@DataString@CRCInfo$")"@"Dodges:"@DodgeCount$", Dodge Time:"@GDP(string(TimeDodging),3)$"s, Distance:"@DistanceString;
 				}
 				if (bProcessedEndGame)
 					SetTimer(1.0,true);
@@ -472,7 +500,11 @@ simulated function PostRender(canvas Canvas)
 		
 		if (StartAS < 0)
 			StartAS = ASAROPlayer.AirSpeed;
-			
+
+		if (Canvas.SizeX < 1600)			
+			bLowRes = true;
+		else
+			bLowRes = false;
 
 		if (ASAROPlayer.bPressedJump  && !bRecordingJump)
 		{ 
@@ -496,18 +528,6 @@ simulated function PostRender(canvas Canvas)
 			DodgeCount++;
 		}
 
-		/*
-		Unreal Units (source: https://web.archive.org/web/20201023072317/https://wiki.beyondunreal.com/Legacy:Unreal_Unit )
-		256 UU = 487.68 cm = 16 feet.
-		1 meter = 52.5 UU
-		1 foot = 16 UU
-		1 cm = 0.525 UU
-		1 UU = 0.75 inches
-		*/
-		if (PrevLocation != vect(0,0,0) && ASAROPlayer.Health > 0)
-			DistanceMoved += DistanceBetween(PrevLocation,ASAROPlayer.Location,true);
-
-		PrevLocation = ASAROPlayer.Location;
 		if (bMetric)
 		{
 			fLT = DistanceMoved/52.5;
@@ -531,6 +551,10 @@ simulated function PostRender(canvas Canvas)
 				PlayerMovementData[0] = "Distance:"@ZeroPad(fLT,4)$"ft";
 		}
 
+		fLT = Sqrt(Square(ASAROPlayer.Velocity.X)+Square(ASAROPlayer.Velocity.Y)+Square(ASAROPlayer.Velocity.Z));
+		if (PeakVD < fLT)
+			PeakVD = fLT;
+
 		PlayerMovementData[0] = PlayerMovementData[0]$"; Dodge Count:"@ZeroPad(DodgeCount,4);
 		PlayerMovementData[0] = PlayerMovementData[0]$"; Dodge Time:"@GDP(string(TimeDodging),3)$"s";
 
@@ -541,12 +565,15 @@ simulated function PostRender(canvas Canvas)
 		PlayerMovementData[2] = PlayerMovementData[2]@"Phys:"@ASAROPlayer.Physics$";";  // GetEnum( object E, int i );
 		PlayerMovementData[2] = PlayerMovementData[2]@"MvTi:"@ASAROPlayer.MoveTimer$";";
 		PlayerMovementData[2] = PlayerMovementData[2]@"Velo:"@ASAROPlayer.Velocity$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"VD:"$int(fLT);
+		PlayerMovementData[2] = PlayerMovementData[2]@"Peak VD:"$int(PeakVD);
 
 		PlayerMovementData[3] = "Walking:"@JumpsWhileWalking$";";
 		PlayerMovementData[3] = PlayerMovementData[3]@"Falling:"@JumpsWhileFalling$";";
 		PlayerMovementData[3] = PlayerMovementData[3]@"Swimming:"@JumpsWhileSwimming$";";
 		PlayerMovementData[3] = PlayerMovementData[3]@"Other:"@JumpsWhileOther$";";
 		PlayerMovementData[3] = PlayerMovementData[3]@"Delayed:"@JumpsCaught$";";
+		PlayerMovementData[3] = PlayerMovementData[3]@"Last Jump Velocity:"@GDP(string(LastJumpVelo),3);
 
 		PlayerMovementData[4] = "Loc:"@ASAROPlayer.Location$";";
 		PlayerMovementData[4] = PlayerMovementData[4]@"OldLoc:"@ASAROPlayer.OldLocation$";";
@@ -577,6 +604,16 @@ simulated function PostRender(canvas Canvas)
 				Canvas.DrawText("Timer drift detected! It is now recommended to restart this run (mutate ar restart).");
 				cLine++;
 			}
+			else if ((bJumpPhysicsAltered || bIDNoclip || bIDFly || bTurbo || bSpeedChanged || bJumpChanged || bWFJ) && !bIsRestarting)
+			{
+				Canvas.DrawColor.R = 255;
+				Canvas.DrawColor.G = 180;
+				Canvas.DrawColor.B = 30;
+				Canvas.SetPos(0, cLine * YL);	
+				Canvas.DrawText("Game physics violation detected. It is now recommended to restart this run (mutate ar restart).");
+				cLine++;
+			}
+
 			if (bSuperDebug)
 			{
 				Canvas.DrawColor.R = 255;
@@ -2202,8 +2239,8 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0k by timo@utassault.net"
-     ShortAppString="AssaultRunner 1.0k:"
+     AppString="AssaultRunner Offline version 1.0l by timo@utassault.net"
+     ShortAppString="AssaultRunner 1.0l:"
      bEnabled=True
      bCheatsEnabled=False
      bAttackOnly=True

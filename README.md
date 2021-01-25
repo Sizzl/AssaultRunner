@@ -25,7 +25,7 @@ This mod has a prerequisite of LeagueAS140 (including server files). This can be
 ### Starting ASARO via command line
 
 Either through the UT console, or as a command-line parameter in a shortcut when launching UT:
-- `open AS-Bridge?game=LeagueAS140.LeagueAssault?mutator=ASARO1k.ASARO`
+- `open AS-Bridge?game=LeagueAS140.LeagueAssault?mutator=ASARO1L.ASARO`
 
 ### Commands
 

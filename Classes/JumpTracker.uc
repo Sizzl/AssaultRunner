@@ -23,6 +23,7 @@ Begin:
 
 function OwnerJumped()
 {
+	local float JumpVelo;
 	if (ParentRunner != None)
 	{
 		if ( Pawn(Owner).Physics == PHYS_Walking )
@@ -33,6 +34,16 @@ function OwnerJumped()
 			ParentRunner.JumpsWhileSwimming++;
 		else
 			ParentRunner.JumpsWhileOther++;
+		
+		JumpVelo = Sqrt(Square(Pawn(Owner).Velocity.X)+Square(Pawn(Owner).Velocity.Y)+Square(Pawn(Owner).Velocity.Z));
+		ParentRunner.LastJumpVelo = JumpVelo;
+		
+		if (Pawn(Owner).bRun==1 && JumpVelo > 500)
+			ParentRunner.bWFJ = true;
+
+		if (JumpVelo == 0)
+			ParentRunner.bJumpPhysicsAltered = true;
+		
 	}
 	if( Inventory != None )
 		Inventory.OwnerJumped();
