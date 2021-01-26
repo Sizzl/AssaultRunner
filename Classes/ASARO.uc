@@ -12,8 +12,8 @@ class ASARO expands Mutator config(AssaultRunner);
 var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpPhysicsAltered, bJumpChanged, bWFJ, bIsRestarting, bTimerDriftDetected, bIsDodging, bMetric, bRecordingJump, bLowRes;
 var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo, PlayerMovementData[6], InitialGame;
 var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount, ISSlot, Drift, iTolerance, LastCRC, DodgeCount, JumpsWhileWalking, JumpsWhileFalling, JumpsWhileSwimming, JumpsWhileOther, JumpsCaught;
-var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging, LastJumpVelo, PeakVD;
-var vector PrevLocation;
+var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging, LastJumpVelo, LastJumpAccn, LastJumpLocD, PeakVD;
+var vector PrevLocation, LastJumpLocV;
 
 var LeagueAS_GameReplicationInfo LeagueASGameReplicationInfo;
 var PlayerPawn Debugger, ASAROPlayer;
@@ -273,7 +273,8 @@ event Timer()
 
 			// Check for naughty boys and girls (and any other non-binary specific naughty humans, aliens, or animals who might have evolved to play this game)
 			ASAROPlayer.bCheatsEnabled = bCheatsEnabled;
-			
+			ASAROPlayer.UnderwaterTime = 20.0069;
+
 			if (bCheatsEnabled)
 				bLoggedCM = True;
 			if (bGotWorldStamp)
@@ -550,7 +551,10 @@ simulated function PostRender(canvas Canvas)
 		PlayerMovementData[0] = PlayerMovementData[0]$"; Dodge Count:"@ZeroPad(DodgeCount,4);
 		PlayerMovementData[0] = PlayerMovementData[0]$"; Dodge Time:"@GDP(string(TimeDodging),3)$"s";
 
-		PlayerMovementData[2] = "Bob:"@ASAROPlayer.bobtime$";";
+		PlayerMovementData[2] = "TBob:"@ASAROPlayer.bobtime$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"LBob:"@ASAROPlayer.Landbob$";";
+		PlayerMovementData[2] = PlayerMovementData[2]@"UWT:"@ASAROPlayer.UnderwaterTime$";";
+		
 		PlayerMovementData[2] = PlayerMovementData[2]@"CTag:"@ASAROPlayer.CollisionTag$";";
 		PlayerMovementData[2] = PlayerMovementData[2]@"DCT:"@ASAROPlayer.DodgeClickTimer$";";
 		PlayerMovementData[2] = PlayerMovementData[2]@"DDir:"@ASAROPlayer.DodgeDir$";"; // GetEnum( object E, int i );
@@ -563,10 +567,12 @@ simulated function PostRender(canvas Canvas)
 
 		PlayerMovementData[4] = "Walking:"@JumpsWhileWalking$";";
 		PlayerMovementData[4] = PlayerMovementData[4]@"Falling:"@JumpsWhileFalling$";";
-		PlayerMovementData[4] = PlayerMovementData[4]@"Swimming:"@JumpsWhileSwimming$";";
-		PlayerMovementData[4] = PlayerMovementData[4]@"Other:"@JumpsWhileOther$";";
+		//PlayerMovementData[4] = PlayerMovementData[4]@"Swimming:"@JumpsWhileSwimming$";";
+		//PlayerMovementData[4] = PlayerMovementData[4]@"Other:"@JumpsWhileOther$";";
 		PlayerMovementData[4] = PlayerMovementData[4]@"Delayed:"@JumpsCaught$";";
-		PlayerMovementData[4] = PlayerMovementData[4]@"Last Jump Velocity:"@GDP(string(LastJumpVelo),3);
+		PlayerMovementData[4] = PlayerMovementData[4]@"Last Jump - Acceleration:"@GDP(string(LastJumpAccn),3)$";";
+		PlayerMovementData[4] = PlayerMovementData[4]@"Velocity:"@GDP(string(LastJumpVelo),3);
+		PlayerMovementData[4] = PlayerMovementData[4]@"Loc Diff:"@GDP(string(LastJumpLocD),3);
 
 		PlayerMovementData[5] = "Loc:"@ASAROPlayer.Location$";";
 		PlayerMovementData[5] = PlayerMovementData[5]@"OldLoc:"@ASAROPlayer.OldLocation$";";

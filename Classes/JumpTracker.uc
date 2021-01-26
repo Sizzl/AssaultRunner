@@ -23,7 +23,7 @@ Begin:
 
 function OwnerJumped()
 {
-	local float JumpVelo;
+	local float JumpVelo,JumpAccn,JumpLocD;
 	if (ParentRunner != None)
 	{
 		if ( Pawn(Owner).Physics == PHYS_Walking )
@@ -36,12 +36,20 @@ function OwnerJumped()
 			ParentRunner.JumpsWhileOther++;
 		
 		JumpVelo = Sqrt(Square(Pawn(Owner).Velocity.X)+Square(Pawn(Owner).Velocity.Y)+Square(Pawn(Owner).Velocity.Z));
+		JumpAccn = Sqrt(Square(Pawn(Owner).Acceleration.X)+Square(Pawn(Owner).Acceleration.Y)+Square(Pawn(Owner).Acceleration.Z));
+		
+		if (ParentRunner.LastJumpLocV != vect(0,0,0))
+			JumpLocD = ParentRunner.DistanceBetween(Pawn(Owner).Location,ParentRunner.LastJumpLocV,false);
+
+		ParentRunner.LastJumpLocV = Pawn(Owner).Location;
+		ParentRunner.LastJumpLocD = JumpLocD;
 		ParentRunner.LastJumpVelo = JumpVelo;
+		ParentRunner.LastJumpAccn = JumpAccn;
 		
 		if (Pawn(Owner).bRun==1 && JumpVelo > 500)
 			ParentRunner.bWFJ = true;
 
-		if (JumpVelo == 0)
+		if (JumpVelo == 0 && Pawn(Owner).UnderwaterTime == PlayerPawn(Owner).Default.UnderWaterTime)
 			ParentRunner.bJumpPhysicsAltered = true;
 		
 	}
