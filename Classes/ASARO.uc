@@ -9,7 +9,7 @@
 class ASARO expands Mutator config(AssaultRunner);
 
 // AssaultRunner vars
-var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpPhysicsAltered, bJumpChanged, bWFJ, bIsRestarting, bTimerDriftDetected, bIncludeCustomForts, bIsDodging, bMetric, bRecordingJump, bHideDodgeStats, bLowRes;
+var bool Initialized, bRecording, bProcessedEndGame, bSuperDebug, bGotWorldStamp, bIsModernClient, bLoggedCM, bIDDQD, bIDNoclip, bIDFly, bTurbo, bCheatsEnabled, bSpeedChanged, bJumpPhysicsAltered, bJumpChanged, bWFJ, bIsRestarting, bTimerDriftDetected, bIsDodging, bMetric, bRecordingJump, bLowRes;
 var string AppString, ShortAppString, GRIFString, ExtraData, FortTimes[20], CRCInfo, PlayerMovementData[6], InitialGame;
 var int AttackingTeam, MapAvailableTime, TickCount, ObjCount, SimCounter, TimeLag, RemainingTime, ticks, ISCount, ISSlot, Drift, iTolerance, LastCRC, DodgeCount, JumpsWhileWalking, JumpsWhileFalling, JumpsWhileSwimming, JumpsWhileOther, JumpsCaught;
 var float SecondCount, FloatCount, WorldStamp, LifeStamp, fConquerTime, fConquerLife, ElapsedTime, TimerPreRate, TimerPostRate, InitSpeed, StartZ, StartWS, StartGS, StartAS, DistanceMoved, DodgeTime, TimeDodging, LastJumpVelo, PeakVD;
@@ -31,7 +31,9 @@ var() config bool bAutoStorePlayerIntervals;
 var() config bool bBroadcastIntervals;
 var() config bool bFullTime;
 var() config bool bGRPMethod;
+var() config bool bHideDodgeStats;
 var() config bool bHUDAlwaysVisible;
+var() config bool bIncludeCustomForts;
 var() config bool bUseFloatAlways;
 var() config bool bUseSmartReset;
 
@@ -744,6 +746,8 @@ function bool MigrateConfig(optional bool bIsChild, optional bool bAllPrevious)
 				ASARO(Owner).bHUDAlwaysVisible = bHUDAlwaysVisible;
 				ASARO(Owner).bIncludeCustomForts = bIncludeCustomForts;
 				ASARO(Owner).bBroadcastIntervals = bBroadcastIntervals;
+				ASARO(Owner).bMetric = bMetric;
+				ASARO(Owner).bHideDodgeStats = bHideDodgeStats;
 
 				for (i = 0; i < 254; i++)
 				{
@@ -809,6 +813,8 @@ function bool MigrateConfig(optional bool bIsChild, optional bool bAllPrevious)
 				ConsoleCommand("set "$Owner.Class$" bHUDAlwaysVisible "$bHUDAlwaysVisible);
 				ConsoleCommand("set "$Owner.Class$" bIncludeCustomForts "$bIncludeCustomForts);
 				ConsoleCommand("set "$Owner.Class$" bBroadcastIntervals "$bBroadcastIntervals);
+				ConsoleCommand("set "$Owner.Class$" bHideDodgeStats "$bHideDodgeStats);
+				ConsoleCommand("set "$Owner.Class$" bMetric "$bMetric);
 
 				for (i = 0; i < 254; i++)
 				{
@@ -2233,8 +2239,8 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0m by timo@utassault.net"
-     ShortAppString="AssaultRunner 1.0m:"
+     AppString="AssaultRunner Offline version 1.0n by timo@utassault.net"
+     ShortAppString="AssaultRunner 1.0n:"
      bEnabled=True
      bCheatsEnabled=False
      bAttackOnly=True
