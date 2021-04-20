@@ -291,7 +291,7 @@ event Timer()
 				if (Level.TimeDilation != InitSpeed)
 					bTurbo = True;
 
-				if (ASAROPlayer.GroundSpeed != StartGS || ASAROPlayer.WaterSpeed != StartWS || ASAROPlayer.AirSpeed != StartAS)
+				if (ASAROPlayer.GroundSpeed != StartGS || (ASAROPlayer.Physics == PHYS_Swimming && StartWS > -1 && ASAROPlayer.WaterSpeed != StartWS) || ASAROPlayer.AirSpeed != StartAS)
 					bSpeedChanged=True;
 
 				
@@ -364,8 +364,11 @@ event Timer()
 				}
 				
 				TournamentScoreBoard(ASAROPlayer.Scoring).Ended = AppString;
-				fConquerLife = ((Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000)) - LifeStamp;
+				if (!bProcessedEndGame && bGotWorldStamp)
+					fConquerLife = ((Level.Hour * 60 * 60) + (Level.Minute * 60) + Level.Second + (Level.MilliSecond/1000)) - LifeStamp;
+
 				fLT = fConquerLife / (Assault(Level.Game).GameSpeed * Level.TimeDilation);
+
 				DataString = "[L:"$GDP(string(fLT),3)@"| E:"$GDP(string(ElapsedTime),0)@"| G:"$GDP(string(Assault(Level.Game).GameSpeed),2)@"| D:"$GDP(string(Level.TimeDilation),2)@"| A:"$GDP(string(Assault(Level.Game).AirControl),2)$ExtraData$"]";
 				if (bLowRes)
 					TournamentScoreBoard(ASAROPlayer.Scoring).Continue = CRCInfo;
@@ -488,9 +491,11 @@ simulated function PostRender(canvas Canvas)
 		if (StartGS < 0)
 			StartGS = ASAROPlayer.GroundSpeed;
 		
-		if (StartWS < 0)
+		if (ASAROPlayer.Physics == PHYS_Swimming && StartWS < 0)
 			StartWS = ASAROPlayer.WaterSpeed;
-		
+		else if (ASAROPlayer.Physics != PHYS_Swimming && StartWS > 0)
+			StartWS = -1; // need to reset this when out of water as different "water" zones (e.g. lava, nitrogen) have different speeds
+
 		if (StartAS < 0)
 			StartAS = ASAROPlayer.AirSpeed;
 
@@ -2245,8 +2250,8 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0n by timo@utassault.net"
-     ShortAppString="AssaultRunner 1.0n:"
+     AppString="AssaultRunner Offline version 1.0o by timo@utassault.net"
+     ShortAppString="AssaultRunner 1.0o:"
      bEnabled=True
      bCheatsEnabled=False
      bAttackOnly=True
