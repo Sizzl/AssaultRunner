@@ -103,7 +103,7 @@ event PreBeginPlay()
 				bMigrated=MigrateConfig();
 				SaveConfig();
 			}
-			
+			ApplyMapFixes();
 			OptimisePlayerStarts();
 			RestorePlayerIntervals();
 			
@@ -1290,7 +1290,77 @@ function AttachFortStandards()
 		C.Event = 'EndGame';
 		
 	}
- }
+}
+
+function ApplyMapFixes()
+{
+	local string S;
+	local BlockTrigger BT;
+
+	S = Left(Self, InStr(Self, "."));
+
+	// Lightweight fixes only
+	if ( Left(S,14) ~= "AS-TheScarabSE" )
+	{
+		// First
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-5080,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-5080,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-5020,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-4960,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-4900,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-4840,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-4780,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+		BT = Spawn(Class'BlockTrigger',,,vect(-1446,-4720,-3771));
+		if ( BT != None )
+		{
+			BT.SetCollisionSize(40.0,260.0);
+			BT.SetMode(True,True,True,False,False,False);
+			BT.Tag = 'MoverHangerDoor';
+		}
+	}
+}
 
 function OptimisePlayerStarts()
 {
@@ -2250,8 +2320,8 @@ function xxCheckCRCs(optional bool bUpdatesOnly)
 
 defaultproperties
 {
-     AppString="AssaultRunner Offline version 1.0o by timo@utassault.net"
-     ShortAppString="AssaultRunner 1.0o:"
+     AppString="AssaultRunner Offline version 1.0p by sizzl@utassault.net"
+     ShortAppString="AssaultRunner 1.0p:"
      bEnabled=True
      bCheatsEnabled=False
      bAttackOnly=True
